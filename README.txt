@@ -9,7 +9,7 @@ Fullscreen: press F11 or the button at the top right (Esc to leave). The tank, f
 Click: coin = pick it up | raging red Gyarados = hit it | water = drop food ($5)
 
 Fish (shop buttons)
-  Magikarp  $100  guppy: eat food, grow small > medium > large, drop silver then gold coins
+  Magikarp  $100  guppy: eat food, grow small > medium > large, bought as babies (no coins), once grown they drop silver ($15), then gold ($35) when fully grown
   Seaking   $250  breeder: gives birth to baby Goldeen (they grow and drop coins like Magikarp)
   Gyarados  $1000 carnivore: eats baby Magikarp, drops diamonds ($200)
   Remoraid  $600  pet: collects coins by itself, shoots the raging Gyarados

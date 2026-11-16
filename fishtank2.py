@@ -1,7 +1,7 @@
 """FISH TANK 2 - an Insaniquarium-style game made only of fish Pokemon sprites.
 
 Feed your fish, collect the coins they drop, fend off the raging red Gyarados, and buy the three egg pieces to finish the level.
-  Magikarp  = guppy      (eats food, grows small > medium > large, drops silver / gold coins)
+  Magikarp  = guppy      (eats food, grows small > medium > large, babies drop nothing; grown ones drop silver / gold coins)
   Seaking   = breeder    (gives birth to baby Goldeen)
   Gyarados  = carnivore  (eats baby Magikarp, drops diamonds)
   Remoraid  = pet        (collects coins for you and shoots the raging Gyarados)
@@ -593,7 +593,7 @@ class Game:
         else:
             self.wander(f, dt)
         # production
-        if k == "guppy" and f.stage >= 1:
+        if k == "guppy" and f.stage >= 1:          # babies (stage 0) never drop coins; they must grow first
             f.coin_t -= dt
             if f.coin_t <= 0:
                 f.coin_t = random.uniform(8, 12)
