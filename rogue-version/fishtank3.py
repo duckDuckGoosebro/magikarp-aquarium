@@ -21,12 +21,16 @@ import tkinter as tk
 from PIL import Image, ImageTk
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+if getattr(sys, "frozen", False):       # built as a Windows .exe: sprites are packed inside, saves go next to the .exe
+    DATA_DIR, SAVE_DIR = sys._MEIPASS, os.path.dirname(sys.executable)
+else:
+    DATA_DIR = SAVE_DIR = HERE
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import cards as cd  # noqa: E402
 
-SPRITES = os.path.join(HERE, "sprites")
-SAVE = os.path.join(HERE, "save.json")
+SPRITES = os.path.join(DATA_DIR, "sprites")
+SAVE = os.path.join(SAVE_DIR, "save.json")
 
 BASE_W, BASE_H = 900, 600
 W, H = BASE_W, BASE_H

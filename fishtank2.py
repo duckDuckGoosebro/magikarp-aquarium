@@ -14,14 +14,19 @@ import math
 import os
 import random
 import re
+import sys
 import time
 import tkinter as tk
 
 from PIL import Image, ImageTk
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SPRITES = os.path.join(HERE, "sprites")
-SAVE = os.path.join(HERE, "save.json")
+if getattr(sys, "frozen", False):       # built as a Windows .exe: sprites are packed inside, saves go next to the .exe
+    DATA_DIR, SAVE_DIR = sys._MEIPASS, os.path.dirname(sys.executable)
+else:
+    DATA_DIR = SAVE_DIR = HERE
+SPRITES = os.path.join(DATA_DIR, "sprites")
+SAVE = os.path.join(SAVE_DIR, "save.json")
 
 BASE_W, BASE_H = 900, 600      # the size the game is designed for; fullscreen enlarges the tank and everything in it
 W, H = BASE_W, BASE_H
