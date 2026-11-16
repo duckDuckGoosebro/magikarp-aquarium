@@ -2,7 +2,7 @@
 
 Feed your fish, collect the coins they drop, fend off the raging red Gyarados, and buy the three egg pieces to finish the level.
   Magikarp  = guppy      (eats food, grows small > medium > large, drops silver / gold coins)
-  Goldeen   = breeder    (makes baby Magikarp)
+  Seaking   = breeder    (gives birth to baby Goldeen)
   Gyarados  = carnivore  (eats baby Magikarp, drops diamonds)
   Remoraid  = pet        (collects coins for you and shoots the raging Gyarados)
   Relicanth = pet        (makes a pearl now and then)
@@ -30,8 +30,8 @@ TOP, BOT = 70, SAND_Y - 30
 RIGHT_ROW, LEFT_ROW = 2, 6
 MAX_FISH = 22
 
-SPECIES = {"guppy": "magikarp", "breeder": "goldeen", "carn": "gyarados", "remo": "remoraid", "relic": "relicanth", "boss": "gyarados"}
-SCALE = {"breeder": 2.0, "carn": 1.0, "remo": 1.7, "relic": 1.9, "boss": 1.5}
+SPECIES = {"guppy": "magikarp", "breeder": "seaking", "carn": "gyarados", "remo": "remoraid", "relic": "relicanth", "boss": "gyarados"}
+SCALE = {"breeder": 1.7, "carn": 1.0, "remo": 1.7, "relic": 1.9, "boss": 1.5}
 GUPPY_SCALE = [1.1, 1.6, 2.2]
 SPEED = {"guppy": 55, "breeder": 60, "carn": 75, "remo": 80, "relic": 40, "boss": 70}
 GROW_NEED = [5, 7]                      # food points to go small>medium, medium>large
@@ -93,8 +93,9 @@ class Sheets:
 
 # ----------------------------------------------------------------------------------------------- entities
 class E:
-    def __init__(self, kind, x=None, y=None, stage=0):
+    def __init__(self, kind, x=None, y=None, stage=0, species=None):
         self.kind = kind
+        self.species = species or SPECIES[kind]       # sprite folder: guppies may be Magikarp or Goldeen
         self.x = x if x is not None else random.uniform(80, W - 80)
         self.y = y if y is not None else random.uniform(TOP, BOT)
         self.tx, self.ty = self.x, self.y
@@ -124,7 +125,7 @@ class E:
         return GUPPY_SCALE[self.stage] if self.kind == "guppy" else SCALE[self.kind]
 
     def size(self, sheets):
-        fr, _ = sheets.get(SPECIES[self.kind], "Idle", True, self.scale, "red" if self.kind == "boss" else None)
+        fr, _ = sheets.get(self.species, "Idle", True, self.scale, "red" if self.kind == "boss" else None)
         return fr[0].width(), fr[0].height()
 
 
@@ -202,7 +203,7 @@ class Game:
         n_guppy = sum(1 for f in self.fish if not f.is_dead)
         out = [
             ("guppy", "Magikarp", "baby, grows & makes coins", 100, n_guppy < MAX_FISH),
-            ("breeder", "Goldeen", "breeds Magikarp", 250, n_guppy < MAX_FISH),
+            ("breeder", "Seaking", "gives birth to Goldeen", 250, n_guppy < MAX_FISH),
             ("carn", "Gyarados", "eats babies, drops diamonds", 1000, n_guppy < MAX_FISH),
             ("remo", "Remoraid", "grabs coins, shoots boss", 600, True),
             ("relic", "Relicanth", "makes pearls ($250)", 1500, True),
@@ -561,8 +562,8 @@ class Game:
             if f.spawn_t <= 0:
                 f.spawn_t = random.uniform(16, 22)
                 if len(self.alive_fish()) < MAX_FISH:
-                    self.fish.append(E("guppy", f.x, f.y, 0))
-                    self.floaters.append([f.x, f.y - 30, "a baby!", "#ffc6e0", 1.2])
+                    self.fish.append(E("guppy", f.x, f.y, 0, "goldeen"))
+                    self.floaters.append([f.x, f.y - 30, "a baby Goldeen!", "#ffc6e0", 1.2])
 
     def kill(self, f):
         if f.is_dead:
@@ -572,7 +573,7 @@ class Game:
 
     def animate(self, f, dt, anim):
         tint = "red" if f.kind == "boss" else None
-        frames, durs = self.sheets.get(SPECIES[f.kind], anim, f.right, f.scale, tint, f.is_dead)
+        frames, durs = self.sheets.get(f.species, anim, f.right, f.scale, tint, f.is_dead)
         f.ftime += dt * 60
         f.frame %= len(frames)
         while f.ftime >= max(1, durs[f.frame]):
