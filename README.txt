@@ -4,6 +4,8 @@ Double-click START_FISH_TANK_2.bat (python + Pillow). The original idle version 
 
 Goal: buy the 3 egg pieces (top-right shop button) to finish the level. Each level costs more and the raging Gyarados comes sooner and tougher.
 
+Fullscreen: press F11 or the button at the top right (Esc to leave). The tank, fish and text scale up to your screen.
+
 Click: coin = pick it up | raging red Gyarados = hit it | water = drop food ($5)
 
 Fish (shop buttons)

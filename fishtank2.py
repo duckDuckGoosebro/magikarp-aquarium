@@ -23,7 +23,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SPRITES = os.path.join(HERE, "sprites")
 SAVE = os.path.join(HERE, "save.json")
 
-W, H = 900, 600
+BASE_W, BASE_H = 900, 600      # the size the game is designed for; fullscreen enlarges the tank and everything in it
+W, H = BASE_W, BASE_H
 FPS = 30
 SAND_Y = H - 60
 TOP, BOT = 70, SAND_Y - 30
@@ -124,8 +125,8 @@ class E:
     def scale(self):
         return GUPPY_SCALE[self.stage] if self.kind == "guppy" else SCALE[self.kind]
 
-    def size(self, sheets):
-        fr, _ = sheets.get(self.species, "Idle", True, self.scale, "red" if self.kind == "boss" else None)
+    def size(self, sheets, S=1.0):
+        fr, _ = sheets.get(self.species, "Idle", True, self.scale * S, "red" if self.kind == "boss" else None)
         return fr[0].width(), fr[0].height()
 
 
@@ -136,6 +137,9 @@ class Game:
         root.configure(bg="#0b1d2e")
         root.resizable(False, False)
         self.sheets = Sheets()
+        self.S = 1.0
+        self.fullscreen = False
+        self.ov_args = None
         self.shop = tk.Frame(root, bg="#102a43")
         self.shop.grid(row=0, column=0, sticky="ew")
         self.canvas = tk.Canvas(root, width=W, height=H, highlightthickness=0, bg="#0b1d2e")
@@ -148,6 +152,8 @@ class Game:
         self.build_shop()
         self.draw_static()
         self.canvas.bind("<Button-1>", self.on_click)
+        root.bind("<F11>", lambda e: self.toggle_fullscreen())
+        root.bind("<Escape>", lambda e: self.toggle_fullscreen(False) if self.fullscreen else None)
         self.root.protocol("WM_DELETE_WINDOW", self.quit)
         self.new_level()
         self.last = time.time()
@@ -225,6 +231,9 @@ class Game:
                           relief="flat", font=("Segoe UI", 8), width=19, height=3, cursor="hand2", justify="center", disabledforeground="#7d8c9b")
             b.grid(row=i // 5, column=i % 5, padx=2, pady=2, sticky="nsew")
             self.btns[key] = b
+        self.fs_btn = tk.Button(self.shop, text="\u26f6 Fullscreen\n(F11)", command=self.toggle_fullscreen, bg="#2d6aa3", fg="white",
+                                activebackground="#3b7fc0", activeforeground="white", relief="flat", font=("Segoe UI", 9, "bold"), width=12, cursor="hand2")
+        self.fs_btn.grid(row=0, column=5, rowspan=2, padx=2, pady=2, sticky="nsew")
         for c in range(5):
             self.shop.grid_columnconfigure(c, weight=1)
 
@@ -262,9 +271,12 @@ class Game:
     # ---------------------------------------------------------------- overlay
     def clear_overlay(self):
         self.canvas.delete("ov")
+        if self.state == "play":
+            self.ov_args = None
 
     def overlay(self, title, lines, button, command):
         c = self.canvas
+        self.ov_args = (title, lines, button, command)
         self.clear_overlay()
         c.create_rectangle(0, 0, W, H, fill="#000", stipple="gray50", outline="", tags="ov")
         c.create_rectangle(W / 2 - 230, H / 2 - 130, W / 2 + 230, H / 2 + 130, fill="#102a43", outline="#7fd1ff", width=3, tags="ov")
@@ -293,20 +305,54 @@ class Game:
     # ---------------------------------------------------------------- scene
     def draw_static(self):
         c = self.canvas
+        S = self.S
         steps = 40
         for i in range(steps):
             f = i / steps
             c.create_rectangle(0, i * H / steps, W, (i + 1) * H / steps + 1, fill="#%02x%02x%02x" % (int(20 + 10 * f), int(110 - 60 * f), int(170 - 70 * f)), outline="")
-        for i in range(5):
-            x = 100 + i * 190
-            c.create_polygon(x, 0, x + 60, 0, x + 160, SAND_Y, x + 40, SAND_Y, fill="#2f8cc0", stipple="gray12", outline="")
+        for i in range(max(5, int(W / 180))):
+            x = 100 * S + i * 190 * S
+            c.create_polygon(x, 0, x + 60 * S, 0, x + 160 * S, SAND_Y, x + 40 * S, SAND_Y, fill="#2f8cc0", stipple="gray12", outline="")
         c.create_rectangle(0, SAND_Y, W, H, fill="#d9c28a", outline="")
-        for _ in range(80):
-            x, y = random.randint(0, W), random.randint(SAND_Y + 4, H - 3)
-            c.create_oval(x, y, x + random.randint(2, 5), y + 2, fill=random.choice(["#c4ac72", "#e9d9a6", "#b99f66"]), outline="")
-        self.weed = [(x, random.randint(60, 120), random.random() * 6) for x in (30, 70, 820, 860, 560)]
-        self.weed_ids = [c.create_line(0, 0, 0, 0, width=6, fill="#2e9e5b", smooth=True, capstyle="round") for _ in self.weed]
-        self.static_count = len(c.find_all())
+        for _ in range(int(80 * W / BASE_W)):
+            x, y = random.randint(0, int(W)), random.randint(int(SAND_Y) + 4, int(H) - 3)
+            c.create_oval(x, y, x + random.randint(2, 5) * S, y + 2 * S, fill=random.choice(["#c4ac72", "#e9d9a6", "#b99f66"]), outline="")
+        self.weed = [(fx * W, random.randint(60, 120) * S, random.random() * 6) for fx in (0.03, 0.08, 0.2, 0.5, 0.62, 0.9, 0.95)]
+        self.weed_ids = [c.create_line(0, 0, 0, 0, width=max(4, int(6 * S)), fill="#2e9e5b", smooth=True, capstyle="round") for _ in self.weed]
+
+    def set_size(self, nw, nh):
+        """Resize the tank (window or fullscreen) and keep everything in it in the same relative place."""
+        global W, H, SAND_Y, TOP, BOT
+        ow, oh = W, H
+        W, H = int(nw), int(nh)
+        self.S = max(0.5, min(3.0, round(H / BASE_H, 2)))
+        SAND_Y, TOP, BOT = H - 60 * self.S, 70 * self.S, H - 60 * self.S - 30 * self.S
+        rx, ry = W / ow, H / oh
+        for f in self.fish:
+            f.x, f.y, f.tx, f.ty = f.x * rx, f.y * ry, f.tx * rx, f.ty * ry
+        for lst in (self.pellets, self.coins, self.bubbles):
+            for o in lst:
+                o["x"], o["y"] = o["x"] * rx, o["y"] * ry
+        self.shots = []
+        self.canvas.config(width=W, height=H)
+        self.canvas.delete("all")
+        self.draw_static()
+        if self.ov_args and self.state != "play":
+            self.overlay(*self.ov_args)
+
+    def toggle_fullscreen(self, on=None):
+        self.fullscreen = (not self.fullscreen) if on is None else on
+        self.root.attributes("-fullscreen", self.fullscreen)
+        self.root.update_idletasks()
+        if self.fullscreen:
+            self.root.resizable(True, True)
+            self.root.update_idletasks()
+            self.set_size(self.root.winfo_screenwidth(), self.root.winfo_screenheight() - self.shop.winfo_reqheight() - 2)
+            self.fs_btn.config(text="\u26f6 Exit\nfullscreen (Esc)")
+        else:
+            self.set_size(BASE_W, BASE_H)
+            self.root.resizable(False, False)
+            self.fs_btn.config(text="\u26f6 Fullscreen\n(F11)")
 
     # ---------------------------------------------------------------- input
     def on_click(self, e):
@@ -314,13 +360,13 @@ class Game:
             return
         # coins first
         for co in sorted(self.coins, key=lambda c: -c["y"]):
-            if math.hypot(co["x"] - e.x, co["y"] - e.y) < 24:
+            if math.hypot(co["x"] - e.x, co["y"] - e.y) < 24 * self.S:
                 self.collect(co)
                 return
         # boss
         b = self.boss
         if b:
-            w, h = b.size(self.sheets)
+            w, h = b.size(self.sheets, self.S)
             if abs(b.x - e.x) < w / 2 and abs(b.y - e.y) < h / 2:
                 self.hit_boss(1 + self.weap_lvl)
                 self.shots.append((e.x, e.y, 0.15, "click"))
@@ -396,7 +442,7 @@ class Game:
                 self.refresh_shop()
         # food
         for p in self.pellets[:]:
-            p["vy"] = min(45, p["vy"] + 60 * dt)
+            p["vy"] = min(45 * self.S, p["vy"] + 60 * self.S * dt)
             p["y"] += p["vy"] * dt
             if p["y"] >= SAND_Y + 4:
                 p["y"] = SAND_Y + 4
@@ -406,7 +452,7 @@ class Game:
         # coins
         for co in self.coins[:]:
             if co["y"] < SAND_Y - 8:
-                co["y"] += 45 * dt
+                co["y"] += 45 * self.S * dt
             co["age"] += dt
             if co["age"] > 14:
                 self.coins.remove(co)
@@ -428,7 +474,7 @@ class Game:
         dx, dy = f.tx - f.x, f.ty - f.y
         dist = math.hypot(dx, dy)
         if dist > 4:
-            v = SPEED[f.kind] * boost
+            v = SPEED[f.kind] * boost * self.S
             f.x += dx / dist * min(v * dt, dist)
             f.y += dy / dist * min(v * dt, dist)
             if abs(dx) > 4:
@@ -573,7 +619,7 @@ class Game:
 
     def animate(self, f, dt, anim):
         tint = "red" if f.kind == "boss" else None
-        frames, durs = self.sheets.get(f.species, anim, f.right, f.scale, tint, f.is_dead)
+        frames, durs = self.sheets.get(f.species, anim, f.right, f.scale * self.S, tint, f.is_dead)
         f.ftime += dt * 60
         f.frame %= len(frames)
         while f.ftime >= max(1, durs[f.frame]):
@@ -584,57 +630,60 @@ class Game:
     # ---------------------------------------------------------------- drawing
     def draw(self):
         c = self.canvas
+        S = self.S
+        fs = lambda n: max(6, int(n * S))
         c.delete("dyn")
         t = time.time()
         for i, (x, h, ph) in enumerate(self.weed):
             pts = []
-            for s in range(6):
-                pts += [x + math.sin(t * 1.3 + ph + s * 0.7) * (s * 3.2), SAND_Y + 6 - s * h / 5]
+            for k in range(6):
+                pts += [x + math.sin(t * 1.3 + ph + k * 0.7) * (k * 3.2 * S), SAND_Y + 6 * S - k * h / 5]
             c.coords(self.weed_ids[i], *pts)
         for b in self.bubbles:
-            c.create_oval(b["x"] - b["r"], b["y"] - b["r"], b["x"] + b["r"], b["y"] + b["r"], outline="#cdeeff", tags="dyn")
+            r = b["r"] * S
+            c.create_oval(b["x"] - r, b["y"] - r, b["x"] + r, b["y"] + r, outline="#cdeeff", tags="dyn")
         for p in self.pellets:
-            c.create_oval(p["x"] - 4, p["y"] - 4, p["x"] + 4, p["y"] + 4, fill="#c98a3a", outline="#7a4f1c", tags="dyn")
+            r = 4 * S
+            c.create_oval(p["x"] - r, p["y"] - r, p["x"] + r, p["y"] + r, fill="#c98a3a", outline="#7a4f1c", tags="dyn")
         for f in sorted(self.fish, key=lambda f: f.y):
             if not f.img:
                 continue
-            ox = random.uniform(-3, 3) if f.shake > 0 else 0
-            c.create_image(f.x + ox, f.y + math.sin(t * 2 + f.x / 50) * 2, image=f.img, tags="dyn")
+            ox = random.uniform(-3, 3) * S if f.shake > 0 else 0
+            c.create_image(f.x + ox, f.y + math.sin(t * 2 + f.x / 50) * 2 * S, image=f.img, tags="dyn")
             top = f.y - f.img.height() / 2
             if f.is_dead:
                 continue
             if f.kind == "boss":
                 m = 22 + 10 * self.level
-                c.create_rectangle(f.x - 30, top - 12, f.x + 30, top - 6, fill="#400", outline="white", tags="dyn")
-                c.create_rectangle(f.x - 30, top - 12, f.x - 30 + 60 * max(0, f.hp) / m, top - 6, fill="#ff4d4d", outline="", tags="dyn")
+                c.create_rectangle(f.x - 30 * S, top - 12 * S, f.x + 30 * S, top - 6 * S, fill="#400", outline="white", tags="dyn")
+                c.create_rectangle(f.x - 30 * S, top - 12 * S, f.x - 30 * S + 60 * S * max(0, f.hp) / m, top - 6 * S, fill="#ff4d4d", outline="", tags="dyn")
             elif not f.pet and f.hunger < (60 if f.kind == "carn" else 55):
                 col = "#ff4d4d" if f.hunger < 25 else "#ffd34d"
-                c.create_text(f.x, top - 8, text="!", fill=col, font=("Segoe UI", 14, "bold"), tags="dyn")
+                c.create_text(f.x, top - 8 * S, text="!", fill=col, font=("Segoe UI", fs(14), "bold"), tags="dyn")
         for x, y, tleft, tgt in self.shots:
             if isinstance(tgt, tuple):
-                c.create_line(x, y, tgt[0], tgt[1], fill="#7fe9ff", width=4, tags="dyn")
+                c.create_line(x, y, tgt[0], tgt[1], fill="#7fe9ff", width=max(3, int(4 * S)), tags="dyn")
             else:
-                c.create_oval(x - 14, y - 14, x + 14, y + 14, outline="#fff36b", width=3, tags="dyn")
+                r = 14 * S
+                c.create_oval(x - r, y - r, x + r, y + r, outline="#fff36b", width=3, tags="dyn")
         for co in self.coins:
             val, fill, edge = COINS[co["kind"]]
-            blink = co["age"] > 11 and int(co["age"] * 8) % 2 == 0
-            if blink:
+            if co["age"] > 11 and int(co["age"] * 8) % 2 == 0:
                 continue
             x, y = co["x"], co["y"]
             if co["kind"] == "diamond":
-                c.create_polygon(x, y - 14, x + 12, y, x, y + 14, x - 12, y, fill=fill, outline=edge, width=2, tags="dyn")
+                c.create_polygon(x, y - 14 * S, x + 12 * S, y, x, y + 14 * S, x - 12 * S, y, fill=fill, outline=edge, width=2, tags="dyn")
             else:
-                r = 11 if co["kind"] in ("silver", "gold") else 14
+                r = (11 if co["kind"] in ("silver", "gold") else 14) * S
                 c.create_oval(x - r, y - r, x + r, y + r, fill=fill, outline=edge, width=2, tags="dyn")
-                c.create_text(x, y, text="$", fill=edge, font=("Segoe UI", 10, "bold"), tags="dyn")
+                c.create_text(x, y, text="$", fill=edge, font=("Segoe UI", fs(10), "bold"), tags="dyn")
         for x, y, text, color, life in self.floaters:
-            c.create_text(x, y, text=text, fill=color, font=("Segoe UI", 12, "bold"), tags="dyn")
-        # HUD
-        c.create_text(14, 10, anchor="nw", text=money(self.cash), fill="#fff", font=("Segoe UI", 24, "bold"), tags="dyn")
-        c.create_text(16, 46, anchor="nw", text="Level %d    Egg %s    Best level %d" % (self.level, "●" * self.eggs + "○" * (3 - self.eggs), self.best),
-                      fill="#bfe6ff", font=("Segoe UI", 11), tags="dyn")
+            c.create_text(x, y, text=text, fill=color, font=("Segoe UI", fs(12), "bold"), tags="dyn")
+        c.create_text(14 * S, 10 * S, anchor="nw", text=money(self.cash), fill="#fff", font=("Segoe UI", fs(24), "bold"), tags="dyn")
+        c.create_text(16 * S, 46 * S, anchor="nw", text="Level %d    Egg %s    Best level %d" % (self.level, "\u25cf" * self.eggs + "\u25cb" * (3 - self.eggs), self.best),
+                      fill="#bfe6ff", font=("Segoe UI", fs(11)), tags="dyn")
         if self.msg_t > 0:
-            c.create_text(W / 2, 20, text=self.msg, fill="#ffd34d", font=("Segoe UI", 14, "bold"), tags="dyn")
+            c.create_text(W / 2, 20 * S, text=self.msg, fill="#ffd34d", font=("Segoe UI", fs(14), "bold"), tags="dyn")
         c.tag_raise("ov")
 
     def tick(self):
