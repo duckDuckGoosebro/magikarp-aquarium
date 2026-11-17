@@ -104,6 +104,8 @@ const CARDS = {
   deed:{kind:'act',name:'Land Deed',cost:1,rar:'U',ico:'deed',target:'land',text:'Claim a new island tile for free.'},
 };
 const RAR_W = {C: 60, U: 30, R: 12};
+// short text printed on the card (the full text shows in the island info panel)
+const SHORT = {"wheat": "2 Leeks a turn. Ripe in 2.", "corn": "3 Apples a turn. Ripe in 3.", "mushroom": "2 Mushrooms. Grass or rock.", "oran": "3 Oran Berries. Ripe in 2.", "razz": "2 Oran Berries. Ripe in 1.", "flowers": "Combee +2 Sweets. Heals.", "lotus": "Water. 2 Lotus Roots (food).", "clam": "Water. 2 Sea Scales.", "oddish": "Makes Oran Berries.", "bulbasaur": "Crops on its island +1.", "psyduck": "Makes Mystic Water.", "magikarp": "Weak, then Gyarados: 8!", "marill": "Water Pokémon here +1.", "wooper": "Mystic Water + Berries.", "geodude": "Digs Hard Stones.", "diglett": "Hard Stones. Crops here +1.", "miltank": "Berry Juice, +1 per Leek.", "tauros": "+2 Juice per Miltank here.", "mareep": "Silk. Ampharos ×2 buildings.", "chansey": "Eggs, +1 per Apple Tree.", "combee": "Sweets from berries & flowers.", "pikachu": "+3 coins (Raichu +7).", "meowth": "Coins per Pokémon nearby.", "machop": "Everything here +1.", "eevee": "1 of each good made here.", "snorlax": "Eats 3. +20 coins.", "lotad": "Lotus Roots. Water crops +1.", "corsola": "Sea Scales, +1 per Clam.", "slowpoke": "Mystic Water (Slowbro 5).", "lapras": "+6 coins. Water Pokémon +1.", "fence": "Holds 2 Pokémon.", "furnace": "3 Hard Stones → Metal Coats.", "well": "Crops here grow faster.", "bakery": "2 Leeks + Berry → Gateau.", "lab": "Pokémon here +2 XP.", "daycare": "Copies a Pokémon card.", "bank": "Interest on your coins.", "ferry": "+3 coins per water island.", "barn": "Juice, Silk, Eggs here +1.", "tower": "Crops here & next door +1.", "center": "Pokémon here eat free.", "mart": "All goods sell +20%.", "gym": "Pokémon here +1 XP.", "dock": "2 Mystic Water. Water +1.", "mine": "2 Hard Stones. Rock +1.", "hut": "Crops sell +2 each.", "house": "Draw +1 card a turn.", "lighthouse": "+1 energy a turn.", "market": "+3 coins per good sold.", "store": "+3 coins. Picks show +1.", "pond": "Empty island → water.", "boulder": "Empty island → rock.", "meadow": "Empty island → grass.", "basket": "Gain 4 Oran Berries.", "fert": "Crops grow 2 turns.", "candy": "Pokémon here +3 XP.", "potion": "Heal Pokémon here, +1 XP.", "notes": "Draw 2 cards.", "sale": "Goods sell +50% today.", "festival": "Everything makes ×2 today.", "deed": "A free new island."};
 
 /* ---------- badges ---------- */
 const BADGES = {
@@ -502,17 +504,19 @@ function cropImg(id, stage) { // stage 1..3
   if (d.icon) return `${ART}items/${d.icon}.png`;
   return cimg(`${d.img}_${stage}`);
 }
+// short place name for the card's type line
+const where = t => t.length === 3 ? 'any' : t.length === 2 && !t.includes('water') ? 'land' : t.join('/');
 function cardHTML(id, extra = '') {
   const d = CARDS[id];
   let art, type;
-  if (d.kind === 'mon') { art = `<img class="portrait" src="${portrait(d.line[0][0])}" alt="">`; type = `Pokémon · Fence on ${d.terrain.join('/')}`; }
-  else if (d.kind === 'bld') { art = `<img src="${bimg(d.img)}" alt="">`; type = `Building · ${d.terrain.join('/')}`; }
-  else if (d.kind === 'crop') { art = id === 'flowers' ? `<img class="crop" src="${cropImg(id, 3)}" alt="" style="height:auto;width:90px">` : `<img class="crop" src="${cropImg(id, 3)}" alt=""><img class="cropitem" src="${ART}items/${ITEM[Object.keys(d.make)[0]]}.png" alt="">`; type = `Crop · ${d.terrain.join('/')}`; }
+  if (d.kind === 'mon') { art = `<img class="portrait" src="${portrait(d.line[0][0])}" alt="">`; type = `Pokémon · ${where(d.terrain)}`; }
+  else if (d.kind === 'bld') { art = `<img src="${bimg(d.img)}" alt="">`; type = `Building · ${where(d.terrain)}`; }
+  else if (d.kind === 'crop') { art = id === 'flowers' ? `<img class="crop" src="${cropImg(id, 3)}" alt="" style="height:auto;width:90px">` : `<img class="crop" src="${cropImg(id, 3)}" alt=""><img class="cropitem" src="${ART}items/${ITEM[Object.keys(d.make)[0]]}.png" alt="">`; type = `Crop · ${where(d.terrain)}`; }
   else { art = `<span class="bigico ico">${SVG[d.ico]}</span>`; type = d.kind === 'ter' ? 'Terrain' : d.target ? 'Action · tile' : 'Action'; }
   const rar = {C: '●', U: '◆', R: '★'}[d.rar];
   return `<div class="card ${cardKindClass(d)} ${extra}" data-id="${id}">
     <div class="cost">${d.cost}</div><div class="band">${d.name}</div>
-    <div class="art">${art}</div><div class="type">${type}</div><div class="txt">${d.text}</div><div class="rar">${rar}</div></div>`;
+    <div class="art">${art}</div><div class="type">${type}</div><div class="txt" title="${d.text}">${SHORT[id] || d.text}</div><div class="rar">${rar}</div></div>`;
 }
 
 function seeded(seed) { let s = seed >>> 0; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); }
@@ -597,6 +601,7 @@ function render() {
 
   $('hand').innerHTML = S.hand.map((c, h) => cardHTML(c.id, (S.sel === h ? 'sel ' : '') + (canAfford(c) ? '' : 'cant')).replace('class="card', `data-h="${h}" class="card`)).join('');
   $('deckN').textContent = S.deck.length; $('discN').textContent = S.discard.length;
+  fitCardText($('hand'));
   $('log').innerHTML = S.log.map(l => `<div class="${l.cls}">${l.msg}</div>`).join('');
   showInfo(S.lock !== null ? S.lock : hoverTile);
 }
@@ -742,7 +747,7 @@ function tick(now) {
 }
 
 /* ---------- modals ---------- */
-function openModal(html) { $('modalBox').innerHTML = html; $('modal').classList.remove('hidden'); }
+function openModal(html) { $('modalBox').innerHTML = html; $('modal').classList.remove('hidden'); fitCardText($('modalBox')); }
 function closeModal() { $('modal').classList.add('hidden'); }
 function rollCards(n) {
   const ids = Object.keys(CARDS), out = [];
@@ -834,6 +839,14 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('contextmenu', e => { if (S && S.sel !== null) { e.preventDefault(); S.sel = null; render(); } });
 function fit() { if (S) render(); }
+// card text never spills: shrink it until it fits its box
+function fitCardText(root) {
+  (root || document).querySelectorAll('.card .txt, .card .band, .card .type').forEach(el => {
+    el.style.fontSize = '';
+    let fs = parseFloat(getComputedStyle(el).fontSize);
+    while ((el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1) && fs > 6.5) { fs -= 0.5; el.style.fontSize = fs + 'px'; }
+  });
+}
 
 
 /* ---------- move the map with your finger: drag to pan, pinch (or mouse wheel) to zoom ---------- */

@@ -293,3 +293,8 @@ html,body{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 /* water crops grow from small to big item sprites */
 .slot img.cropimg.itemcrop{height:auto;align-self:center;margin:auto}
 .slot img.itemcrop.st1{width:34%} .slot img.itemcrop.st2{width:52%} .slot img.itemcrop.st3{width:70%}
+
+/* ---------- card text always fits ---------- */
+.card .type{white-space:nowrap;overflow:hidden;text-overflow:clip}
+.card .txt{overflow:hidden;min-height:0;padding-right:12px}
+.card .band{overflow:hidden}
