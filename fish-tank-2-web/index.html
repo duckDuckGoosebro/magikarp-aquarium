@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Fish Tank">
+<meta name="theme-color" content="#0b1d2e">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="manifest" href="manifest.json">
+<title>Fish Tank</title>
+<style>
+:root{--bg:#0b1d2e;--brass:#c79a3b;--ink:#ffe9a8}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;touch-action:manipulation}
+html,body{margin:0;height:100%;background:var(--bg);color:#fff;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;overflow:hidden;overscroll-behavior:none}
+#app{height:100dvh;display:grid;grid-template-rows:auto 1fr auto;grid-template-areas:"top" "stage" "side";padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+#top{grid-area:top;display:flex;align-items:center;gap:8px;padding:6px 10px;background:linear-gradient(#8c6420,#5a3a0a);border-bottom:2px solid #f6dc94}
+#top .cash{flex:1;font:700 20px Consolas,monospace;color:#d8ffd0;background:#0f3d14;border:2px solid #f6dc94;border-radius:6px;padding:2px 10px}
+#top .cash::before{content:"\1FA99 "}
+#top button{font:700 16px system-ui;background:#f0cb72;color:#4a3008;border:2px solid #4a3008;border-radius:8px;padding:6px 12px}
+#stage{grid-area:stage;display:flex;align-items:center;justify-content:center;min-height:0;min-width:0}
+#tank{position:relative}
+#bg{position:absolute;inset:0;background-size:cover;background-position:center;border-radius:6px}
+#c{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+#side{grid-area:side;background:linear-gradient(#8c6420,#5a3a0a);border-top:2px solid #f6dc94;min-width:0}
+#tip{font:600 12px system-ui;color:var(--ink);padding:3px 10px;height:20px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;background:#3a2608}
+#shop{display:flex;gap:6px;overflow-x:auto;padding:6px;-webkit-overflow-scrolling:touch}
+.item{flex:0 0 74px;display:flex;flex-direction:column;align-items:center;gap:2px;padding:4px 2px;background:#f0cb72;border:2px solid #4a3008;border-radius:10px;color:#4a3008;font-family:inherit}
+.item.off{opacity:.45}
+.item .ic{width:44px;height:44px;display:flex;align-items:center;justify-content:center;font-size:30px;background:radial-gradient(#7fd1ff,#1c5f8f);border-radius:50%;border:2px solid #4a3008;overflow:hidden}
+.item .nm{font:700 10px system-ui;max-width:70px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.item .pr{font:800 12px system-ui;background:#1c1408;color:var(--ink);border-radius:5px;padding:0 6px}
+#modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(5,15,25,.78);z-index:5;padding:12px}
+#modal.show{display:flex}
+.box{background:#102a43;border:3px solid #f6dc94;border-radius:16px;padding:16px;width:min(420px,100%);max-height:92dvh;overflow:auto;display:flex;flex-direction:column;gap:8px;text-align:center}
+.box h2{margin:0;color:#ffd34d}.box p{margin:0;color:#bfe6ff}
+.box button,.box input{font:700 16px system-ui;background:#1f4b73;color:#fff;border:2px solid #7fd1ff;border-radius:10px;padding:10px;width:100%}
+.box input{background:#0b1d2e;font-weight:500}
+.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}.grid button{padding:8px 0}
+.list{display:flex;flex-direction:column;gap:6px;text-align:left;font-size:14px}.list div{padding:6px 8px;background:#0b1d2e;border-radius:8px}.list .got{color:#a6ffcb}.list .met{color:#ffd34d}
+@media (orientation:landscape) and (max-height:560px){
+  #app{grid-template-columns:1fr 250px;grid-template-rows:auto 1fr;grid-template-areas:"stage top" "stage side"}
+  #side{display:flex;flex-direction:column;min-height:0;border-top:0;border-left:2px solid #f6dc94}
+  #shop{flex-wrap:wrap;overflow-y:auto;overflow-x:hidden;align-content:flex-start;flex:1}
+  .item{flex:0 0 72px}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="top"><div class="cash" id="cash">150</div><button id="pauseBtn">II</button><button id="menuBtn">MENU</button></div>
+  <div id="stage"><div id="tank"><div id="bg"></div><canvas id="c" width="900" height="600"></canvas></div></div>
+  <div id="side"><div id="tip">Tip: turn your phone sideways for a bigger tank. Tap the water to drop food ($5). Tap coins to collect them. Tap raiders to hit them.</div><div id="shop"></div></div>
+</div>
+<div id="modal"></div>
+<script src="data.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
