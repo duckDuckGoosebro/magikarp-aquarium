@@ -54,7 +54,6 @@ img{image-rendering:pixelated}
 .tile.water .ground{background-image:url(assets/ground/water.png);background-size:60px 60px;animation:wave 4s linear infinite}
 @keyframes wave{to{background-position:60px 0}}
 .tile.rock .ground{background-image:url(assets/ground/rock2.png);background-size:54px 54px}
-.deco{position:absolute;image-rendering:pixelated;pointer-events:none;transform:translate(-50%,-100%)}
 .slots{position:absolute;inset:calc(var(--T)*0.09) calc(var(--T)*0.07);display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(3,1fr);gap:calc(var(--T)*0.025)}
 .slot{position:relative;border-radius:7px;min-width:0;min-height:0;display:grid;place-items:end center;cursor:pointer}
 .slot.empty{border:1.5px dashed #ffffff55;background:#ffffff10}
@@ -247,8 +246,6 @@ html,body{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .slot{overflow:hidden}
 .slot img.bld{max-width:100%;max-height:100%;margin-bottom:0}
 .slot img.cropimg{max-height:100%}
-/* scenery = one corner square each (0.2 x 0.2 of the island), never in the grid or the walking lanes */
-.tile .deco{position:absolute;width:calc(var(--T)*0.2);height:calc(var(--T)*0.2);transform:none;object-fit:contain;object-position:center bottom;z-index:1}
 
 /* ---------- right panel: island info and log each get their own box ---------- */
 #side{display:grid;grid-template-rows:auto minmax(0,1.4fr) auto minmax(0,1fr);overflow:hidden}
@@ -262,7 +259,8 @@ html,body{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 #boardWrap{touch-action:none;cursor:grab}
 #boardWrap:active{cursor:grabbing}
 #world{transform-origin:0 0;will-change:transform}
-#recenter{position:absolute;right:8px;bottom:8px;z-index:5;font-size:18px;padding:6px 11px;line-height:1}
+#zoomBar{position:absolute;right:8px;bottom:8px;z-index:5;display:flex;flex-direction:column;gap:8px}
+#zoomBar .btn{font-size:20px;width:42px;height:42px;padding:0;line-height:1;display:grid;place-items:center}
 
 /* ---------- phone held sideways: map left, cards in a column on the right ---------- */
 @media (max-height:520px) and (orientation:landscape){
@@ -282,3 +280,12 @@ html,body{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
   #modalBox{max-height:94dvh;padding:10px}
   .choices .card{--card-w:112px;--card-h:160px}
 }
+
+/* ---------- an island is just a square with its grid ---------- */
+.tile.owned{background:none;box-shadow:0 4px 0 #0005;border-radius:4px;padding:0}
+.tile .ground{inset:0;border-radius:4px;background-image:none!important;animation:none}
+.tile.grass .ground{background:#5fb34a}
+.tile.water .ground{background:#3b8fd6}
+.tile.rock .ground{background:#a08466}
+.tile .slots{inset:calc(var(--T)*0.05)}
+.slot,.slot.empty{border:1px solid #ffffff59;background:#ffffff0d;border-radius:2px}

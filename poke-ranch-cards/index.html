@@ -9,7 +9,7 @@
 <title>Poké Ranch Cards</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@600;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
 <div id="app">
@@ -36,7 +36,7 @@
 
     <section id="boardWrap">
       <div id="world"><div id="tiles"></div><div id="fx"></div></div>
-      <button id="recenter" class="btn small" title="Re-center the map">⌂</button>
+      <div id="zoomBar"><button id="zoomIn" class="btn small zoombtn" title="Zoom in">+</button><button id="zoomOut" class="btn small zoombtn" title="Zoom out">−</button><button id="recenter" class="btn small zoombtn" title="Re-center the map">⌂</button></div>
     </section>
 
     <aside id="side" class="panel">
@@ -59,7 +59,7 @@
 <div id="modal" class="hidden"><div id="modalBox"></div></div>
 <div id="tip" class="hidden"></div>
 
-<script src="assets/walkdata.js?v=3"></script>
-<script src="game.js?v=3"></script>
+<script src="assets/walkdata.js?v=5"></script>
+<script src="game.js?v=5"></script>
 </body>
 </html>

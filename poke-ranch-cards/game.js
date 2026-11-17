@@ -470,23 +470,17 @@ function cardHTML(id, extra = '') {
     <div class="art">${art}</div><div class="type">${type}</div><div class="txt">${d.text}</div><div class="rar">${rar}</div></div>`;
 }
 
-// deterministic scenery per tile
 function seeded(seed) { let s = seed >>> 0; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); }
-const DECO = {
-  grass: ['tallgrass_hg', 'flowers_hg', 'flowers', 'shrub', 'shrub_yellow', 'pine', 'pine2', 'rocks_moss', 'sign', 'lamp'],
-  rock: ['rock_grey', 'rocks_pink', 'rock_pink', 'boulder_grey', 'nugget', 'rock_moss', 'rock_dark'],
-  water: [],
-};
+// no scenery sprites on the islands (owner: "remove all sprites from island")
 /* Island layout (fractions of the island size): the 4 x 3 slot grid. No scenery sprites on the islands.
    Each Pokémon walks inside its own slot, so no sprite ever overlaps another. */
-const GRID = {top: 0.09, side: 0.07, gap: 0.025, cols: 4, rows: 3};
+const GRID = {top: 0.05, side: 0.05, gap: 0.025, cols: 4, rows: 3};   // must match .tile .slots in style.css
 function slotRect(s) {
   const {top, side, gap, cols, rows} = GRID;
   const cw = (1 - 2 * side - (cols - 1) * gap) / cols, ch = (1 - 2 * top - (rows - 1) * gap) / rows;
   const col = s % cols, row = Math.floor(s / cols), a = side + col * (cw + gap), y0 = top + row * (ch + gap);
   return {a, b: a + cw, y0, y1: y0 + ch};
 }
-function decoHTML() { return ''; }
 let view = {c0: 0, r0: 0, T: 170};
 // camera: zoom and pan set by fingers (drag / pinch) or the mouse (drag / wheel); 1, 0, 0 = auto-framed
 const cam = {zoom: 1, px: 0, py: 0};
@@ -497,9 +491,9 @@ function layout() {
   for (const i of cells) { const [r, c] = rc(i); r0 = Math.min(r0, r); r1 = Math.max(r1, r); c0 = Math.min(c0, c); c1 = Math.max(c1, c); }
   const wrap = $('boardWrap'), W = wrap.clientWidth, H = wrap.clientHeight, cols = c1 - c0 + 1, rows = r1 - r0 + 1;
   const gap = 1.08;
-  const m = Math.min(W, H) < 600 ? 0.35 : 1.1;    // on phones the island fills more of the screen
-  const fitT = Math.min(W / (cols * gap + m), H / (rows * gap + m), 330);
-  const t = Math.round(Math.max(40, Math.min(700, fitT * cam.zoom)));
+  const m = 1.6;                                   // islands start small; zoom in with pinch or +
+  const fitT = Math.min(W / (cols * gap + m), H / (rows * gap + m), 190);
+  const t = Math.round(Math.max(40, Math.min(700, fitT * cam.zoom)));   // pinch / + - to zoom
   view = {c0, r0, T: t, gap: Math.round(t * gap), W, H,
     ox: Math.round((W - cols * t * gap) / 2 + cam.px), oy: Math.round((H - rows * t * gap) / 2 + cam.py)};
   // never lose the ranch: at least a bit of it stays on screen
@@ -545,7 +539,7 @@ function render() {
     let cls = 'tile', inner = '';
     if (t.owned) {
       cls += ' owned ' + t.t + (S.lock === i ? ' locked' : '');
-      inner = `<div class="ground"></div>${decoHTML(i)}<div class="slots">` + t.slots.map((o, s) => slotHTML(o, i, s)).join('') + '</div>';
+      inner = `<div class="ground"></div><div class="slots">` + t.slots.map((o, s) => slotHTML(o, i, s)).join('') + '</div>';
     } else {
       cls += ' buy';
       inner = sel && CARDS[sel.id].target === 'land' ? '<div class="cost">FREE</div>' : `<div class="cost">+ LAND<span>${svgIco('coin', 14)} ${landCost()}</span></div>`;
@@ -805,19 +799,19 @@ function commitGesture() {
 }
 function wrapPoint(e) { const r = $('boardWrap').getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
 const bw = $('boardWrap');
-bw.addEventListener('pointerdown', e => {
-  if (e.button && e.button !== 0) return;
-  gesture.pts.set(e.pointerId, wrapPoint(e));
-  if (gesture.pts.size === 1) { gesture.start = {p: wrapPoint(e), dx: gesture.dx, dy: gesture.dy}; gesture.drag = false; }
+// one set of gesture steps, fed by touch events (phones) and mouse pointer events (computers)
+function gDown(id, p) {
+  gesture.pts.set(id, p);
+  if (gesture.pts.size === 1) { gesture.start = {p, dx: gesture.dx, dy: gesture.dy}; gesture.drag = false; }
   if (gesture.pts.size === 2) {
     const [a, b] = [...gesture.pts.values()];
     gesture.pinch = {d: Math.hypot(a[0] - b[0], a[1] - b[1]) || 1, mid: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], s: gesture.s, dx: gesture.dx, dy: gesture.dy};
     gesture.drag = true;
   }
-});
-bw.addEventListener('pointermove', e => {
-  if (!gesture.pts.has(e.pointerId)) return;
-  gesture.pts.set(e.pointerId, wrapPoint(e));
+}
+function gMove(id, p) {
+  if (!gesture.pts.has(id)) return;
+  gesture.pts.set(id, p);
   if (gesture.pts.size >= 2 && gesture.pinch) {
     const [a, b] = [...gesture.pts.values()], P = gesture.pinch;
     const d = Math.hypot(a[0] - b[0], a[1] - b[1]), mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
@@ -827,22 +821,42 @@ bw.addEventListener('pointermove', e => {
     worldTransform(); return;
   }
   const st = gesture.start; if (!st) return;
-  const [x, y] = wrapPoint(e), mx = x - st.p[0], my = y - st.p[1];
-  if (!gesture.drag && Math.hypot(mx, my) > 8) { gesture.drag = true; bw.setPointerCapture(e.pointerId); }
+  const mx = p[0] - st.p[0], my = p[1] - st.p[1];
+  if (!gesture.drag && Math.hypot(mx, my) > 8) gesture.drag = true;
   if (gesture.drag) { gesture.dx = st.dx + mx; gesture.dy = st.dy + my; worldTransform(); }
-});
-function endPointer(e) {
-  if (!gesture.pts.has(e.pointerId)) return;
-  gesture.pts.delete(e.pointerId);
+}
+function gUp(id) {
+  if (!gesture.pts.has(id)) return;
+  gesture.pts.delete(id);
   if (gesture.pts.size === 1) { const [p] = gesture.pts.values(); gesture.start = {p, dx: gesture.dx, dy: gesture.dy}; gesture.pinch = null; return; }
   if (gesture.pts.size === 0) {
     gesture.pinch = null; gesture.start = null;
-    if (gesture.drag) { gesture.justDragged = true; setTimeout(() => { gesture.justDragged = false; }, 50); }
+    if (gesture.drag) { gesture.justDragged = true; setTimeout(() => { gesture.justDragged = false; }, 350); }
     commitGesture();
   }
 }
-bw.addEventListener('pointerup', endPointer);
-bw.addEventListener('pointercancel', endPointer);
+// phones: real touch events, so the browser never steals the pinch for page zoom (works on iPhone Safari and Android Chrome)
+const touchPt = t => { const r = bw.getBoundingClientRect(); return [t.clientX - r.left, t.clientY - r.top]; };
+bw.addEventListener('touchstart', e => {
+  if (e.target.closest('#recenter, .zoombtn')) return;
+  for (const t of e.changedTouches) gDown('t' + t.identifier, touchPt(t));
+  if (e.touches.length > 1) e.preventDefault();
+}, {passive: false});
+bw.addEventListener('touchmove', e => {
+  for (const t of e.changedTouches) gMove('t' + t.identifier, touchPt(t));
+  e.preventDefault();                       // no page scroll / page zoom while moving the map
+}, {passive: false});
+const touchEnd = e => { for (const t of e.changedTouches) gUp('t' + t.identifier); };
+bw.addEventListener('touchend', touchEnd);
+bw.addEventListener('touchcancel', touchEnd);
+['gesturestart', 'gesturechange', 'gestureend'].forEach(n => document.addEventListener(n, e => e.preventDefault(), {passive: false}));  // iOS page zoom
+// computers: the mouse
+bw.addEventListener('pointerdown', e => {
+  if (e.pointerType !== 'mouse' || e.button !== 0 || e.target.closest('#recenter, .zoombtn')) return;
+  gDown('m', wrapPoint(e));
+});
+window.addEventListener('pointermove', e => { if (e.pointerType === 'mouse') gMove('m', wrapPoint(e)); });
+window.addEventListener('pointerup', e => { if (e.pointerType === 'mouse') gUp('m'); });
 // a drag is not a tap: swallow the click that follows it
 bw.addEventListener('click', e => { if (gesture.justDragged) { e.stopPropagation(); e.preventDefault(); } }, true);
 bw.addEventListener('wheel', e => {
@@ -853,6 +867,14 @@ bw.addEventListener('wheel', e => {
   commitGesture();
 }, {passive: false});
 $('recenter').onclick = e => { e.stopPropagation(); cam.zoom = 1; cam.px = 0; cam.py = 0; render(); };
+// + / - buttons zoom around the middle of the map
+function zoomBy(f) {
+  const x = view.W / 2, y = view.H / 2, z = Math.max(0.45, Math.min(3.5, cam.zoom * f)), k = z / cam.zoom;
+  gesture.dx = x - (x - gesture.dx) * k; gesture.dy = y - (y - gesture.dy) * k; gesture.s *= k;
+  commitGesture();
+}
+$('zoomIn').onclick = e => { e.stopPropagation(); zoomBy(1.3); };
+$('zoomOut').onclick = e => { e.stopPropagation(); zoomBy(1 / 1.3); };
 /* ---------- phone: market and info open as slide-up sheets ---------- */
 const isPhone = () => window.matchMedia('(max-width: 820px), (max-height: 520px)').matches;
 function openSheet(id) {
