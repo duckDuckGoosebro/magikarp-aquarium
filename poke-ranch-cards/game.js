@@ -69,7 +69,7 @@ const CARDS = {
   lapras:{kind:'mon',name:'Lapras',cost:3,rar:'R',terrain:['water'],line:[[131,'Lapras']],evo:[],coins:[6],text:'Ferries visitors: +6 coins. Water Pokémon on its island make +1.'},
   snorlax:{kind:'mon',name:'Snorlax',cost:3,rar:'R',terrain:['grass'],line:[[143,'Snorlax']],evo:[],coins:[20],food:3,text:'Eats 3 food. Fans pay 20 coins a turn to watch it nap.'},
   // Buildings
-  fence:{kind:'bld',name:'Fence',cost:1,rar:'C',terrain:['grass','rock','water'],img:'fence',text:'A pen for 2 Pokémon. Pokémon cards can only go in a Fence.'},
+  fence:{kind:'bld',name:'Fence',cost:1,rar:'C',terrain:['grass','rock','water'],img:'pen',text:'A pen for 2 Pokémon. Pokémon cards can only go in a Fence.'},
   furnace:{kind:'bld',name:'Furnace',cost:2,rar:'U',terrain:['grass','rock'],img:'furnace',text:'Each turn smelts up to 3 Hard Stones into Metal Coats (worth 14).'},
   well:{kind:'bld',name:'Well',cost:1,rar:'C',terrain:['grass','rock'],img:'well',text:'Crops on this island grow 1 extra turn each turn.'},
   bakery:{kind:'bld',name:'Bakery',cost:2,rar:'U',terrain:['grass','rock'],img:'bakery',text:'Each turn bakes up to 2 Old Gateaux (worth 16), each from 2 Leeks + 1 Oran Berry.'},
@@ -615,7 +615,7 @@ function slotHTML(o, i, s, glow) {
     const icon = CARDS[o.id].icon ? ` itemcrop st${ripe(o) ? 3 : st}` : '';
     return `<div class="slot crop${g}" data-s="${s}">${o.id === 'flowers' || CARDS[o.id].icon ? '' : `<img class="soil" src="${simg('soil')}" alt="">`}<img class="cropimg${wide}${icon}" src="${cropImg(o.id, ripe(o) ? 3 : st)}" alt="">${ripe(o) ? '' : `<span class="grow">${need - o.age}t</span>`}</div>`;
   }
-  if (o.id === 'fence') return `<div class="slot fence${g}" data-s="${s}"><img class="rail top" src="${bimg('fence')}" alt=""><img class="rail bot" src="${bimg('fence')}" alt=""><span class="pen">${o.mons.length}/2</span></div>`;
+  if (o.id === 'fence') return `<div class="slot fence${g}" data-s="${s}"><img class="penimg" src="${bimg('pen')}" alt=""><span class="pen">${o.mons.length}/2</span></div>`;
   return `<div class="slot${g}" data-s="${s}"><img class="bld" src="${bimg(d.img)}" alt=""></div>`;
 }
 
@@ -694,8 +694,9 @@ function syncWalkers() {
       let w = walkers.get(o.uid);
       if (!w) { w = walkerEl(stageDex(o)); setSheet(w, stageDex(o)); w.wait = Math.random() * 2; w.t = 0; w.dir = 0; w.fx = 0.5; w.fy = 1; w.tx = 0.5; w.ty = 1; walkers.set(o.uid, w); }
       if (w.dex !== stageDex(o)) setSheet(w, stageDex(o));
-      const r = slotRect(si), ins = (r.y1 - r.y0) * 0.24, half = (r.b - r.a) / 2;
-      w.pen = {a: r.a + half * k, b: r.a + half * (k + 1), y0: r.y0 + ins, y1: r.y1 - ins * 0.45};   // its half of the pen
+      // the open middle of the drawn pen (rails take 25% at the top, 28% at the bottom, 12% at each side)
+      const r = slotRect(si), hh = r.y1 - r.y0, ww = r.b - r.a, ia = r.a + ww * 0.12, half = (ww * 0.76) / 2;
+      w.pen = {a: ia + half * k, b: ia + half * (k + 1), y0: r.y0 + hh * 0.25, y1: r.y1 - hh * 0.28};   // its half of the pen
       w.tile = i; w.o = o; w.water = T(i).t === 'water';
     });
   });

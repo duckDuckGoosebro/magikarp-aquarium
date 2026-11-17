@@ -298,3 +298,8 @@ html,body{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .card .type{white-space:nowrap;overflow:hidden;text-overflow:clip}
 .card .txt{overflow:hidden;min-height:0;padding-right:12px}
 .card .band{overflow:hidden}
+
+/* fence = the hand-drawn wooden pen filling the square */
+.slot.fence{background:none}
+.slot.fence .penimg{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;image-rendering:pixelated;pointer-events:none}
+.slot.fence .pen{top:auto;bottom:30%;right:13%;font-size:8px;opacity:.85}

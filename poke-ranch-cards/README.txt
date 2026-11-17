@@ -26,7 +26,8 @@ Files
                               item sprites from the pokerogue-assets repo (ai/agent enviroment/pokerogue-assets/images/items)
   assets/scenery/soil.png     HGSS soft-soil patch under crops
 
-Every picture in the game comes from a Pokemon game or fan-game repo; nothing is hand-drawn.
+Every picture comes from a Pokemon game or fan-game repo, except the Fence pen (assets/buildings/pen.png),
+which is drawn by tools/draw_fence.py (owner asked for a custom wooden fence).
 
 Add a Pokemon: add its dex number to DEX in tools/build_assets.py, run it, copy its icon into assets/icons,
 then add an entry to CARDS in game.js.
