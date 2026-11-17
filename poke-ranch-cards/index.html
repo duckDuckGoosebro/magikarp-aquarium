@@ -9,7 +9,7 @@
 <title>Poké Ranch Cards</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@600;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=11">
+<link rel="stylesheet" href="style.css?v=12">
 </head>
 <body>
 <div id="app">
@@ -18,7 +18,8 @@
     <div class="stat" title="Coins"><i class="ico coin"></i><b id="coins">0</b></div>
     <div class="stat" title="Estimated income next turn">≈ <b id="est">0</b>/turn</div>
     <div class="stat" title="Turn">Turn <b id="turn">1</b></div>
-    <div class="stat rent" title="Ranch loan payment"><span>Loan payment</span> <b id="rentAmt">0</b> <small id="rentIn"></small></div>
+    <div class="stat rent" title="Taxes"><span>Taxes</span> <b id="rentAmt">0</b> <small id="rentIn"></small></div>
+    <div class="stat" id="waterStat" title="Water: made by Wells / drunk by crops"><i class="ico wat"></i><b id="water">0</b>/<span id="waterNeed">0</span></div>
     <div class="stat" title="Energy left this turn"><i class="ico bolt"></i><b id="energy">3</b>/<span id="energyMax">3</span></div>
     <div id="badges" title="Your badges"></div>
     <button id="mktBtn" class="btn small mobile-only">Market</button>
@@ -59,7 +60,7 @@
 <div id="modal" class="hidden"><div id="modalBox"></div></div>
 <div id="tip" class="hidden"></div>
 
-<script src="assets/walkdata.js?v=11"></script>
-<script src="game.js?v=11"></script>
+<script src="assets/walkdata.js?v=12"></script>
+<script src="game.js?v=12"></script>
 </body>
 </html>

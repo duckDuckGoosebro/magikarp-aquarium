@@ -1,6 +1,8 @@
 /* Poké Ranch Cards — a ranch-building roguelike deckbuilder.
    Start with ONE island tile. Every land tile has 12 slots: plant crops, house Pokémon, build buildings.
-   Things on the same tile help each other. Sell goods, pay the loan every 5 turns, buy more land. */
+   Things on the same tile help each other. Sell goods, pay taxes every 10 turns, buy more land.
+   Terracards-style rules: Wells make Water, every crop needs 1 Water a turn to work, matching crops side by side
+   make +1, Wells and Fences cost upkeep, Pokémon live in Fences, card picks every 3 turns with free rerolls. */
 'use strict';
 
 const G = 11;                       // world grid G x G, the island starts in the middle
@@ -18,7 +20,7 @@ const ITEM = {
   milk:'berry_juice_good', wool:'silk_scarf', egg:'common_egg', honey:'flower_sweet', coin:'nugget', bolt:'pp_up',
   basket:'berry_pouch', fert:'miracle_seed', candy:'rare_candy', potion:'potion', notes:'map', sale:'amulet_coin',
   sun:'sun_flute', deed:'mystic_ticket', water_ter:'water_stone', rock_ter:'everstone', grass_ter:'leaf_stone',
-  metal:'metal_coat', gateau:'old_gateau', scale:'deep_sea_scale', root:'big_root',
+  metal:'metal_coat', gateau:'old_gateau', scale:'deep_sea_scale', root:'big_root', water:'water_gem',
 };
 const SVG = Object.fromEntries(Object.entries(ITEM).map(([k, v]) => [k, `<img class="gimg" src="${ART}items/${v}.png" alt="">`]));
 const svgIco = (k, s = 16) => `<span class="ico" style="width:${s}px;height:${s}px">${SVG[k]}</span>`;
@@ -69,9 +71,9 @@ const CARDS = {
   lapras:{kind:'mon',name:'Lapras',cost:3,rar:'R',terrain:['water'],line:[[131,'Lapras']],evo:[],coins:[6],text:'Ferries visitors: +6 coins. Water Pokémon on its island make +1.'},
   snorlax:{kind:'mon',name:'Snorlax',cost:3,rar:'R',terrain:['grass'],line:[[143,'Snorlax']],evo:[],coins:[20],food:3,text:'Eats 3 food. Fans pay 20 coins a turn to watch it nap.'},
   // Buildings
-  fence:{kind:'bld',name:'Fence',cost:1,rar:'C',terrain:['grass','rock','water'],img:'pen',text:'A pen for 2 Pokémon. Pokémon cards can only go in a Fence.'},
+  fence:{kind:'bld',name:'Fence',cost:1,rar:'C',terrain:['grass','rock','water'],img:'pen',upkeep:1,text:'A pen for 2 Pokémon. Pokémon cards can only go in a Fence. Upkeep 1 coin.'},
   furnace:{kind:'bld',name:'Furnace',cost:2,rar:'U',terrain:['grass','rock'],img:'furnace',text:'Each turn smelts up to 3 Hard Stones into Metal Coats (worth 14).'},
-  well:{kind:'bld',name:'Well',cost:1,rar:'C',terrain:['grass','rock'],img:'well',text:'Crops on this island grow 1 extra turn each turn.'},
+  well:{kind:'bld',name:'Well',cost:1,rar:'C',terrain:['grass','rock'],img:'well',upkeep:1,text:'+5 Water a turn (crops anywhere can use it). Crops on its island make +1. Upkeep 1 coin.'},
   bakery:{kind:'bld',name:'Bakery',cost:2,rar:'U',terrain:['grass','rock'],img:'bakery',text:'Each turn bakes up to 2 Old Gateaux (worth 16), each from 2 Leeks + 1 Oran Berry.'},
   lab:{kind:'bld',name:'Pokémon Lab',cost:2,rar:'R',terrain:['grass','rock'],img:'lab',text:'Pokémon on this island get +2 XP each turn.'},
   daycare:{kind:'bld',name:'Day Care',cost:2,rar:'R',terrain:['grass'],img:'daycare',text:'Every 3 turns, adds a copy of a Pokémon card from this island to your deck.'},
@@ -105,7 +107,7 @@ const CARDS = {
 };
 const RAR_W = {C: 60, U: 30, R: 12};
 // short text printed on the card (the full text shows in the island info panel)
-const SHORT = {"wheat": "2 Leeks a turn. Ripe in 2.", "corn": "3 Apples a turn. Ripe in 3.", "mushroom": "2 Mushrooms. Grass or rock.", "oran": "3 Oran Berries. Ripe in 2.", "razz": "2 Oran Berries. Ripe in 1.", "flowers": "Combee +2 Sweets. Heals.", "lotus": "Water. 2 Lotus Roots (food).", "clam": "Water. 2 Sea Scales.", "oddish": "Makes Oran Berries.", "bulbasaur": "Crops on its island +1.", "psyduck": "Makes Mystic Water.", "magikarp": "Weak, then Gyarados: 8!", "marill": "Water Pokémon here +1.", "wooper": "Mystic Water + Berries.", "geodude": "Digs Hard Stones.", "diglett": "Hard Stones. Crops here +1.", "miltank": "Berry Juice, +1 per Leek.", "tauros": "+2 Juice per Miltank here.", "mareep": "Silk. Ampharos ×2 buildings.", "chansey": "Eggs, +1 per Apple Tree.", "combee": "Sweets from berries & flowers.", "pikachu": "+3 coins (Raichu +7).", "meowth": "Coins per Pokémon nearby.", "machop": "Everything here +1.", "eevee": "1 of each good made here.", "snorlax": "Eats 3. +20 coins.", "lotad": "Lotus Roots. Water crops +1.", "corsola": "Sea Scales, +1 per Clam.", "slowpoke": "Mystic Water (Slowbro 5).", "lapras": "+6 coins. Water Pokémon +1.", "fence": "Holds 2 Pokémon.", "furnace": "3 Hard Stones → Metal Coats.", "well": "Crops here grow faster.", "bakery": "2 Leeks + Berry → Gateau.", "lab": "Pokémon here +2 XP.", "daycare": "Copies a Pokémon card.", "bank": "Interest on your coins.", "ferry": "+3 coins per water island.", "barn": "Juice, Silk, Eggs here +1.", "tower": "Crops here & next door +1.", "center": "Pokémon here eat free.", "mart": "All goods sell +20%.", "gym": "Pokémon here +1 XP.", "dock": "2 Mystic Water. Water +1.", "mine": "2 Hard Stones. Rock +1.", "hut": "Crops sell +2 each.", "house": "Draw +1 card a turn.", "lighthouse": "+1 energy a turn.", "market": "+3 coins per good sold.", "store": "+3 coins. Picks show +1.", "pond": "Empty island → water.", "boulder": "Empty island → rock.", "meadow": "Empty island → grass.", "basket": "Gain 4 Oran Berries.", "fert": "Crops grow 2 turns.", "candy": "Pokémon here +3 XP.", "potion": "Heal Pokémon here, +1 XP.", "notes": "Draw 2 cards.", "sale": "Goods sell +50% today.", "festival": "Everything makes ×2 today.", "deed": "A free new island."};
+const SHORT = {"wheat": "2 Leeks a turn. Ripe in 2.", "corn": "3 Apples a turn. Ripe in 3.", "mushroom": "2 Mushrooms. Grass or rock.", "oran": "3 Oran Berries. Ripe in 2.", "razz": "2 Oran Berries. Ripe in 1.", "flowers": "Combee +2 Sweets. Heals.", "lotus": "Water. 2 Lotus Roots (food).", "clam": "Water. 2 Sea Scales.", "oddish": "Makes Oran Berries.", "bulbasaur": "Crops on its island +1.", "psyduck": "Makes Mystic Water.", "magikarp": "Weak, then Gyarados: 8!", "marill": "Water Pokémon here +1.", "wooper": "Mystic Water + Berries.", "geodude": "Digs Hard Stones.", "diglett": "Hard Stones. Crops here +1.", "miltank": "Berry Juice, +1 per Leek.", "tauros": "+2 Juice per Miltank here.", "mareep": "Silk. Ampharos ×2 buildings.", "chansey": "Eggs, +1 per Apple Tree.", "combee": "Sweets from berries & flowers.", "pikachu": "+3 coins (Raichu +7).", "meowth": "Coins per Pokémon nearby.", "machop": "Everything here +1.", "eevee": "1 of each good made here.", "snorlax": "Eats 3. +20 coins.", "lotad": "Lotus Roots. Water crops +1.", "corsola": "Sea Scales, +1 per Clam.", "slowpoke": "Mystic Water (Slowbro 5).", "lapras": "+6 coins. Water Pokémon +1.", "fence": "Holds 2 Pokémon. Upkeep 1.", "furnace": "3 Hard Stones → Metal Coats.", "well": "+5 Water. Crops here +1.", "bakery": "2 Leeks + Berry → Gateau.", "lab": "Pokémon here +2 XP.", "daycare": "Copies a Pokémon card.", "bank": "Interest on your coins.", "ferry": "+3 coins per water island.", "barn": "Juice, Silk, Eggs here +1.", "tower": "Crops here & next door +1.", "center": "Pokémon here eat free.", "mart": "All goods sell +20%.", "gym": "Pokémon here +1 XP.", "dock": "2 Mystic Water. Water +1.", "mine": "2 Hard Stones. Rock +1.", "hut": "Crops sell +2 each.", "house": "Draw +1 card a turn.", "lighthouse": "+1 energy a turn.", "market": "+3 coins per good sold.", "store": "+3 coins. Picks show +1.", "pond": "Empty island → water.", "boulder": "Empty island → rock.", "meadow": "Empty island → grass.", "basket": "Gain 4 Oran Berries.", "fert": "Crops grow 2 turns.", "candy": "Pokémon here +3 XP.", "potion": "Heal Pokémon here, +1 XP.", "notes": "Draw 2 cards.", "sale": "Goods sell +50% today.", "festival": "Everything makes ×2 today.", "deed": "A free new island."};
 
 /* ---------- badges ---------- */
 const BADGES = {
@@ -126,7 +128,8 @@ const BADGES = {
   rising:{n:'Rising Badge',c:'#7a5bb5',e:'ribbon_dragon',t:'Crops ripen 1 turn sooner.'},
 };
 
-const RENT = [25, 60, 120, 200, 300, 440, 620, 840, 1100, 1450];
+const RENT = [60, 170, 360, 650, 1050, 1600, 2300, 3200, 4300, 5600];   // taxes, every TAX_EVERY turns
+const TAX_EVERY = 10, PICK_EVERY = 3;
 const WILD = [16, 19, 10, 13, 161, 263, 396, 399, 403, 531, 162];   // wild Pokémon that wander by
 
 /* ---------- state ---------- */
@@ -144,9 +147,9 @@ function newRun() {
   const board = [];
   for (let i = 0; i < G * G; i++) board.push(newTile('grass'));
   board[CENTER].owned = true;
-  const deck = ['wheat', 'wheat', 'wheat', 'oran', 'razz', 'fence', 'fence', 'oddish', 'miltank', 'mareep', 'psyduck', 'potion'].map(mk);
+  const deck = ['well', 'wheat', 'wheat', 'wheat', 'oran', 'razz', 'fence', 'fence', 'oddish', 'miltank', 'mareep', 'psyduck', 'potion'].map(mk);
   S = {
-    turn: 1, coins: 15, energy: 3, deck: shuffle(deck), hand: [], discard: [], board,
+    turn: 1, coins: 20, energy: 3, freeRerolls: 3, rerolledThisTurn: false, deck: shuffle(deck), hand: [], discard: [], board,
     stock: Object.fromEntries(RES_KEYS.map(k => [k, 0])),
     price: Object.fromEntries(RES_KEYS.map(k => [k, 1])),
     prevPrice: Object.fromEntries(RES_KEYS.map(k => [k, 1])),
@@ -191,6 +194,24 @@ const ripe = o => o.age >= growNeed(o);
 const fmt = n => n.toLocaleString();
 function log(msg, cls = '') { S.log.unshift({msg, cls}); S.log.length = Math.min(S.log.length, 60); }
 
+/* ---------- water (Terracards rule: crops need water to work) ---------- */
+// Wells make 5 Water a turn and every water island adds 2. Each land crop drinks 1 Water a turn.
+// Crops are watered in order (island by island, square by square); without water a crop stops: no harvest, no growing.
+const needsWater = o => kindOf(o) === 'crop' && !(CARDS[o.id].terrain.length === 1 && CARDS[o.id].terrain[0] === 'water');
+const waterSupply = () => 5 * countB('well') + 2 * owned().filter(j => T(j).t === 'water').length;
+function waterPlan() {
+  let left = waterSupply(); const dry = new Set(); let need = 0;
+  for (const i of owned()) for (const o of T(i).slots) if (o && needsWater(o)) { need++; if (left > 0) left--; else dry.add(o.uid); }
+  return {supply: waterSupply(), need, dry};
+}
+let WATER = {supply: 0, need: 0, dry: new Set()};
+// matching crops side by side on the grid help each other (+1)
+function sameCropNextTo(i, o) {
+  const t = T(i), s = t.slots.indexOf(o); if (s < 0) return false;
+  const c = s % 4, r = Math.floor(s / 4), nb = [];
+  if (c > 0) nb.push(s - 1); if (c < 3) nb.push(s + 1); if (r > 0) nb.push(s - 4); if (r < 2) nb.push(s + 4);
+  return nb.some(k => t.slots[k] && t.slots[k].id === o.id);
+}
 /* ---------- production ---------- */
 // What one thing on an island makes this turn: {items, coins, why}
 function prodOf(i, o) {
@@ -204,6 +225,7 @@ function prodOf(i, o) {
   };
 
   if (d.kind === 'crop') {
+    if (WATER.dry.has(o.uid)) { out.why.push('No water! Build a Well'); return out; }
     if (!ripe(o)) { out.why.push(`Growing: ${growNeed(o) - o.age} turn(s) left`); return out; }
     for (const k in d.make) add(k, d.make[k]);
     if (!Object.keys(d.make).length) return out;
@@ -213,6 +235,8 @@ function prodOf(i, o) {
       if (q.id === 'tower') B(1, 'Water Tower');
       if (q.id === 'lotad' && !q.hungry && T(i).t === 'water') B(1, stageName(q));
     }
+    if (countOn(i, 'well')) B(countOn(i, 'well'), 'Well');
+    if (sameCropNextTo(i, o)) B(1, 'Same crop next to it');
     const towersNear = nbs(i).reduce((a, j) => a + countOn(j, 'tower'), 0);
     if (towersNear) B(towersNear, 'Water Tower next door');
     tileAura();
@@ -275,6 +299,7 @@ function estimateIncome() {
   let food = allMons().reduce((a, [i, o]) => a + (occs(i).some(q => q.id === 'center') ? 0 : foodOf(o)), 0);
   for (const k of FOOD) { const eat = Math.min(food, (items[k] || 0) + S.stock[k]); food -= eat; items[k] = Math.max(0, (items[k] || 0) - Math.max(0, eat - S.stock[k])); }
   for (const k in items) if (!S.hold[k]) coins += items[k] * sellPrice(k);
+  coins -= owned().reduce((a, i) => a + T(i).slots.reduce((b, o) => b + (o && CARDS[o.id].upkeep ? CARDS[o.id].upkeep : 0), 0), 0);
   return coins;
 }
 const allMons = () => { const r = []; for (const i of owned()) for (const o of occs(i)) if (kindOf(o) === 'mon') r.push([i, o]); return r.sort((a, b) => a[1].uid - b[1].uid); };
@@ -296,6 +321,8 @@ function draw(n) {
 function endTurn() {
   if (busy || S.over) return;
   busy = true; S.sel = null; render();
+  WATER = waterPlan();
+  if (WATER.dry.size) log(`${WATER.dry.size} crop(s) had no water and did nothing. Build more Wells!`, 'bad');
   const res = owned().map(i => [i, prodTile(i)]);
   res.forEach(([i, p], n) => {
     const parts = Object.entries(p.items).map(([k, v]) => `+${v}${svgIco(k, 13)}`);
@@ -313,7 +340,8 @@ function resolveTurn(res) {
 
   // crops grow
   for (const i of owned()) for (const o of T(i).slots) if (o && kindOf(o) === 'crop') {
-    const was = ripe(o); o.age += 1 + countOn(i, 'well'); if (!was && ripe(o) && growNeed(o) > 0) log(`${CARDS[o.id].name} is ripe!`, 'gd');
+    if (WATER.dry.has(o.uid)) continue;   // no water, no growing
+    const was = ripe(o); o.age += 1; if (!was && ripe(o) && growNeed(o) > 0) log(`${CARDS[o.id].name} is ripe!`, 'gd');
   }
 
   // feed: berries, then corn, then wheat
@@ -337,6 +365,9 @@ function resolveTurn(res) {
     }
   }
 
+  // upkeep: Wells, Fences and other structures cost coins every turn
+  const upkeep = owned().reduce((a, i) => a + T(i).slots.reduce((b, o) => b + (o && CARDS[o.id].upkeep ? CARDS[o.id].upkeep : 0), 0), 0);
+  if (upkeep) { coins -= upkeep; log(`Upkeep: -${upkeep} coins.`); }
   // workshops turn goods into better goods
   for (let k = 0; k < countB('furnace'); k++) { const n = Math.min(3, S.stock.ore); if (n) { S.stock.ore -= n; S.stock.metal += n; log(`The Furnace smelted ${n} Metal Coat(s).`); } }
   for (let k = 0; k < countB('bakery'); k++) for (let b = 0; b < 2 && S.stock.wheat >= 2 && S.stock.berry >= 1; b++) { S.stock.wheat -= 2; S.stock.berry -= 1; S.stock.gateau++; log('The Bakery baked an Old Gateau.'); }
@@ -360,16 +391,19 @@ function resolveTurn(res) {
 
   const ended = S.turn; S.turn++;
   const queue = [];
-  if (ended % 5 === 0) {
+  if (ended % TAX_EVERY === 0) {
     const due = rentDue();
     if (S.coins >= due) {
       S.coins -= due; S.payIndex++;
-      log(`Paid the loan: ${due} coins.`, 'gd');
+      log(`Paid taxes: ${due} coins.`, 'gd');
       if (!S.endless && S.payIndex >= RENT.length) queue.push(showWin);
       queue.push(n => showBadge(due, n));
     } else { busy = false; render(); return gameOver(due); }
   }
-  if (ended % 2 === 0) queue.push(showDraft);
+  if (S.coins < 0) { busy = false; render(); return gameOver(0); }   // a negative balance at the end of the day ends the run
+  if (!S.rerolledThisTurn) S.freeRerolls++;   // each turn without a reroll banks a free reroll
+  S.rerolledThisTurn = false;
+  if (ended % PICK_EVERY === 0) queue.push(showDraft);
   busy = false;
   runQueue(queue, () => startTurn());
 }
@@ -554,12 +588,15 @@ function layout() {
 const tileXY = i => { const [r, c] = rc(i); return [view.ox + (c - view.c0) * view.gap, view.oy + (r - view.r0) * view.gap]; };
 
 function render() {
+  WATER = waterPlan();
   $('coins').textContent = fmt(S.coins);
   $('turn').textContent = S.turn;
   $('energy').textContent = S.energy; $('energyMax').textContent = energyMax();
   $('est').textContent = fmt(estimateIncome());
-  const due = rentDue(), left = 5 - ((S.turn - 1) % 5);
+  const due = rentDue(), left = TAX_EVERY - ((S.turn - 1) % TAX_EVERY);
   $('rentAmt').textContent = fmt(due);
+  $('water').textContent = WATER.supply; $('waterNeed').textContent = WATER.need;
+  $('waterStat').classList.toggle('dry', WATER.need > WATER.supply);
   $('rentIn').textContent = left === 1 ? 'due THIS turn' : `in ${left} turns`;
   document.querySelector('.stat.rent').classList.toggle('soon', left === 1 && S.coins < due);
   $('badges').innerHTML = S.badges.map(b => `<div class="badge" style="background:${BADGES[b].c}" data-tip="${BADGES[b].n}: ${BADGES[b].t}"><img src="${ART}items/${BADGES[b].e}.png" alt=""></div>`).join('');
@@ -613,7 +650,7 @@ function slotHTML(o, i, s, glow) {
     const need = growNeed(o), st = o.id === 'flowers' ? 3 : need === 0 ? 3 : Math.min(3, 1 + Math.floor(o.age * 3 / (need + 1)));
     const wide = o.id === 'flowers' ? ' wide' : '';
     const icon = CARDS[o.id].icon ? ` itemcrop st${ripe(o) ? 3 : st}` : '';
-    return `<div class="slot crop${g}" data-s="${s}">${o.id === 'flowers' || CARDS[o.id].icon ? '' : `<img class="soil" src="${simg('soil')}" alt="">`}<img class="cropimg${wide}${icon}" src="${cropImg(o.id, ripe(o) ? 3 : st)}" alt="">${ripe(o) ? '' : `<span class="grow">${need - o.age}t</span>`}</div>`;
+    return `<div class="slot crop${g}${WATER.dry.has(o.uid) ? ' dry' : ''}" data-s="${s}">${o.id === 'flowers' || CARDS[o.id].icon ? '' : `<img class="soil" src="${simg('soil')}" alt="">`}<img class="cropimg${wide}${icon}" src="${cropImg(o.id, ripe(o) ? 3 : st)}" alt="">${ripe(o) ? '' : `<span class="grow">${need - o.age}t</span>`}</div>`;
   }
   if (o.id === 'fence') return `<div class="slot fence${g}" data-s="${s}"><img class="penimg" src="${bimg('pen')}" alt=""><span class="pen">${o.mons.length}/2</span></div>`;
   return `<div class="slot${g}" data-s="${s}"><img class="bld" src="${bimg(d.img)}" alt=""></div>`;
@@ -765,15 +802,15 @@ function showDraft(next) {
   const opts = rollCards(n);
   openModal(`<h2>A trainer offers you a card</h2><p>Pick one to add to your deck.</p>
     <div class="choices">${opts.map(id => cardHTML(id)).join('')}</div>
-    <div class="row-btns"><button class="btn grey" id="reroll" ${S.coins < S.rerollCost ? 'disabled' : ''}>Reroll (${S.rerollCost} coins)</button><button class="btn grey" id="skip">Skip (+5 coins)</button></div>`);
+    <div class="row-btns"><button class="btn grey" id="reroll" ${!S.freeRerolls && S.coins < S.rerollCost ? 'disabled' : ''}>${S.freeRerolls ? `Reroll (free, ${S.freeRerolls} left)` : `Reroll (${S.rerollCost} coins)`}</button><button class="btn grey" id="skip">Skip (+5 coins)</button></div>`);
   document.querySelectorAll('#modalBox .card').forEach(el => el.onclick = () => { S.discard.push(mk(el.dataset.id)); log(`Added ${CARDS[el.dataset.id].name} to your deck.`, 'gd'); next(); });
-  $('reroll').onclick = () => { S.coins -= S.rerollCost; S.rerollCost += 2; render(); showDraft(next); };
+  $('reroll').onclick = () => { if (S.freeRerolls) S.freeRerolls--; else { S.coins -= S.rerollCost; S.rerollCost += 2; } S.rerolledThisTurn = true; render(); showDraft(next); };
   $('skip').onclick = () => { S.coins += 5; render(); next(); };
 }
 function showBadge(due, next) {
   const pool = shuffle(Object.keys(BADGES).filter(b => !S.badges.includes(b))).slice(0, 3);
   if (!pool.length) return next();
-  openModal(`<h2>Loan paid!</h2><p>You paid <b>${due}</b> coins. Next payment: <b>${rentDue()}</b> in 5 turns.<br>The Ranch League awards you a badge. Choose one:</p>
+  openModal(`<h2>Taxes paid!</h2><p>You paid <b>${due}</b> coins. Next taxes: <b>${rentDue()}</b> in ${TAX_EVERY} turns.<br>The Ranch League awards you a badge. Choose one:</p>
     <div class="choices">${pool.map(b => `<div class="bchoice" data-b="${b}"><div class="badge" style="background:${BADGES[b].c}"><img src="${ART}items/${BADGES[b].e}.png" alt=""></div><b>${BADGES[b].n}</b><span>${BADGES[b].t}</span></div>`).join('')}</div>`);
   document.querySelectorAll('.bchoice').forEach(el => el.onclick = () => { S.badges.push(el.dataset.b); log(`Earned the ${BADGES[el.dataset.b].n}!`, 'gd'); render(); next(); });
 }
@@ -786,8 +823,8 @@ function saveBest() {
 }
 function gameOver(due) {
   S.over = true; const best = saveBest();
-  openModal(`<h2>The bank took the ranch…</h2><p>The loan payment was <b>${due}</b> coins but you only had <b>${S.coins}</b>.</p>
-    <p>You lasted <b>${S.turn - 1}</b> turns on <b>${owned().length}</b> islands, paid <b>${S.payIndex}</b> loan payments and earned <b>${fmt(S.earned)}</b> coins.<br>${S.evolved} evolutions · ${S.ranAway} Pokémon ran away.</p>
+  openModal(`<h2>The bank took the ranch…</h2><p>${due ? `Taxes were <b>${due}</b> coins but you only had <b>${S.coins}</b>.` : `Your coins went below zero (<b>${S.coins}</b>) at the end of the day.`}</p>
+    <p>You lasted <b>${S.turn - 1}</b> turns on <b>${owned().length}</b> islands, paid taxes <b>${S.payIndex}</b> times and earned <b>${fmt(S.earned)}</b> coins.<br>${S.evolved} evolutions · ${S.ranAway} Pokémon ran away.</p>
     <p style="color:#7a6c50">Best: ${best.turn - 1} turns · ${fmt(best.earned)} coins earned</p>
     <div class="row-btns"><button class="btn" id="again">New Ranch</button></div>`);
   $('again').onclick = () => { closeModal(); newRun(); };
@@ -809,7 +846,10 @@ function showHelp() {
     <li>Things on the <b>same island</b> help each other: Miltank grazes Leeks, Combee loves flowers, Machop helps everyone, a Barn boosts animals…</li>
     <li>Goods sell at the end of each turn. Prices move, so tick <b>hold</b> to wait for a better price.</li>
     <li>Click <b>+ LAND</b> to buy a new island next to yours. You choose grass, water or rock.</li>
-    <li>Every <b>5 turns</b> pay the loan. Can't pay = game over. Each payment earns a <b>badge</b>. Every 2 turns you pick a new card.</li></ul></div>
+    <li><b>Water:</b> every crop drinks 1 Water a turn. Wells make 5 (water islands 2). A crop with no water does nothing.</li>
+    <li>Matching crops <b>side by side</b> make +1. Pokémon live in <b>Fences</b> (2 each).</li>
+    <li>Wells and Fences cost <b>1 coin upkeep</b> a turn.</li>
+    <li>Every <b>10 turns</b> pay taxes; if your coins go below zero the run ends. Each payment earns a <b>badge</b>. Every 3 turns you pick a new card (free rerolls build up).</li></ul></div>
     <div class="row-btns"><button class="btn" id="ok">Let's farm!</button></div>`);
   $('ok').onclick = closeModal;
 }
@@ -957,6 +997,7 @@ $('badges').addEventListener('click', e => { const b = e.target.closest('[data-t
 window.addEventListener('resize', fit);
 document.querySelector('#top .ico.coin').innerHTML = SVG.coin;
 document.querySelector('#top .ico.bolt').innerHTML = SVG.bolt;
+document.querySelector('#top .ico.wat').innerHTML = SVG.water;
 newRun();
 showHelp();
 requestAnimationFrame(tick);
