@@ -39,7 +39,7 @@ const FOOD = ['berry', 'corn', 'root', 'wheat', 'mushroom'];
 // kind: crop | mon | bld | ter | act.  terrain: which land it can go on.
 const CARDS = {
   // Crops (grow for a few turns, then harvest every turn)
-  wheat:{kind:'crop',name:'Leek Patch',cost:0,rar:'C',terrain:['grass'],img:'leek',grow:2,make:{wheat:2},text:'Ripe in 2 turns, then 2 Leeks every turn.'},
+  wheat:{kind:'crop',name:'Leek Patch',cost:0,rar:'C',terrain:['grass'],img:'leek',grow:0,make:{wheat:2},text:'2 Leeks every turn, starting right away (like Terracards wheat).'},
   corn:{kind:'crop',name:'Apple Tree',cost:1,rar:'C',terrain:['grass'],img:'apple',grow:3,make:{corn:3},text:'Ripe in 3 turns, then 3 Sweet Apples every turn. Drinks 2 Water.'},
   mushroom:{kind:'crop',name:'Mushrooms',cost:1,rar:'U',terrain:['grass','rock'],img:'mushroom',grow:3,make:{mushroom:2},text:'Grows on grass or rock. Ripe in 3 turns, then 2 Big Mushrooms.'},
   oran:{kind:'crop',name:'Oran Tree',cost:1,rar:'C',terrain:['grass'],img:'oran',grow:2,make:{berry:3},text:'Ripe in 2 turns, then 3 Oran Berries every turn.'},
@@ -56,7 +56,7 @@ const CARDS = {
   wooper:{kind:'mon',name:'Wooper',cost:1,rar:'C',terrain:['water'],line:[[194,'Wooper'],[195,'Quagsire']],evo:[4],prod:{fish:[1,2],berry:[1,2]},text:'Mystic Water and Oran Berries.'},
   geodude:{kind:'mon',name:'Geodude',cost:1,rar:'C',terrain:['rock'],line:[[74,'Geodude'],[75,'Graveler'],[76,'Golem']],evo:[3,7],prod:{ore:[2,3,5]},text:'Digs up Hard Stones.'},
   diglett:{kind:'mon',name:'Diglett',cost:1,rar:'U',terrain:['grass','rock'],line:[[50,'Diglett'],[51,'Dugtrio']],evo:[4],prod:{ore:[1,2]},till:true,text:'Hard Stones. Tills the soil: crops on its island make +1.'},
-  miltank:{kind:'mon',name:'Miltank',cost:2,rar:'C',terrain:['grass'],line:[[241,'Miltank']],evo:[],prod:{milk:[2]},text:'2 Berry Juice, +1 for each Leek Patch on its island.'},
+  miltank:{kind:'mon',name:'Miltank',cost:1,rar:'C',terrain:['grass'],line:[[241,'Miltank']],evo:[],prod:{milk:[2]},text:'2 Berry Juice, +1 for each Leek Patch on its island. Drinks 3 Water, eats 1 food.'},
   tauros:{kind:'mon',name:'Tauros',cost:2,rar:'U',terrain:['grass'],line:[[128,'Tauros']],evo:[],prod:{milk:[1]},text:'1 Berry Juice, +2 for each Miltank on its island.'},
   mareep:{kind:'mon',name:'Mareep',cost:1,rar:'C',terrain:['grass'],line:[[179,'Mareep'],[180,'Flaaffy'],[181,'Ampharos']],evo:[3,7],prod:{wool:[1,2,3]},text:'Silk (+1 with Leeks on its island). Ampharos doubles buildings there.'},
   chansey:{kind:'mon',name:'Chansey',cost:2,rar:'U',terrain:['grass'],line:[[113,'Chansey'],[242,'Blissey']],evo:[5],prod:{egg:[1,3]},text:'Eggs, +1 per Apple Tree on its island. Heals its island.'},
@@ -73,7 +73,7 @@ const CARDS = {
   // Buildings
   fence:{kind:'bld',name:'Fence',cost:1,rar:'C',terrain:['grass','rock','water'],img:'pen',upkeep:1,text:'A pen for 2 Pokémon. Pokémon cards can only go in a Fence. Upkeep 1 coin.'},
   furnace:{kind:'bld',name:'Furnace',cost:2,rar:'U',terrain:['grass','rock'],img:'furnace',text:'Each turn smelts up to 3 Hard Stones into Metal Coats (worth 14).'},
-  well:{kind:'bld',name:'Well',cost:1,rar:'C',terrain:['grass','rock'],img:'well',upkeep:1,text:'+5 Water a turn (crops anywhere can use it). Crops on its island make +1. Upkeep 1 coin.'},
+  well:{kind:'bld',name:'Well',cost:1,rar:'C',terrain:['grass','rock'],img:'well',upkeep:1,text:'+10 Water a turn (crops and Pokémon anywhere can use it). Crops on its island make +1. Upkeep 1 coin.'},
   bakery:{kind:'bld',name:'Bakery',cost:2,rar:'U',terrain:['grass','rock'],img:'bakery',text:'Each turn bakes up to 2 Old Gateaux (worth 16), each from 2 Leeks + 1 Oran Berry.'},
   lab:{kind:'bld',name:'Pokémon Lab',cost:2,rar:'R',terrain:['grass','rock'],img:'lab',text:'Pokémon on this island get +2 XP each turn.'},
   daycare:{kind:'bld',name:'Day Care',cost:2,rar:'R',terrain:['grass'],img:'daycare',text:'Every 3 turns, adds a copy of a Pokémon card from this island to your deck.'},
@@ -107,7 +107,7 @@ const CARDS = {
 };
 const RAR_W = {C: 60, U: 30, R: 12};
 // short text printed on the card (the full text shows in the island info panel)
-const SHORT = {"wheat": "2 Leeks a turn. Ripe in 2.", "corn": "3 Apples a turn. Ripe in 3.", "mushroom": "2 Mushrooms. Grass or rock.", "oran": "3 Oran Berries. Ripe in 2.", "razz": "2 Oran Berries. Ripe in 1.", "flowers": "Combee +2 Sweets. Heals.", "lotus": "Water. 2 Lotus Roots (food).", "clam": "Water. 2 Sea Scales.", "oddish": "Makes Oran Berries.", "bulbasaur": "Crops on its island +1.", "psyduck": "Makes Mystic Water.", "magikarp": "Weak, then Gyarados: 8!", "marill": "Water Pokémon here +1.", "wooper": "Mystic Water + Berries.", "geodude": "Digs Hard Stones.", "diglett": "Hard Stones. Crops here +1.", "miltank": "Berry Juice, +1 per Leek.", "tauros": "+2 Juice per Miltank here.", "mareep": "Silk. Ampharos ×2 buildings.", "chansey": "Eggs, +1 per Apple Tree.", "combee": "Sweets from berries & flowers.", "pikachu": "+3 coins (Raichu +7).", "meowth": "Coins per Pokémon nearby.", "machop": "Everything here +1.", "eevee": "1 of each good made here.", "snorlax": "Eats 3. +20 coins.", "lotad": "Lotus Roots. Water crops +1.", "corsola": "Sea Scales, +1 per Clam.", "slowpoke": "Mystic Water (Slowbro 5).", "lapras": "+6 coins. Water Pokémon +1.", "fence": "Holds 2 Pokémon. Upkeep 1.", "furnace": "3 Hard Stones → Metal Coats.", "well": "+5 Water. Crops here +1.", "bakery": "2 Leeks + Berry → Gateau.", "lab": "Pokémon here +2 XP.", "daycare": "Copies a Pokémon card.", "bank": "Interest on your coins.", "ferry": "+3 coins per water island.", "barn": "Juice, Silk, Eggs here +1.", "tower": "Crops here & next door +1.", "center": "Pokémon here eat free.", "mart": "All goods sell +20%.", "gym": "Pokémon here +1 XP.", "dock": "2 Mystic Water. Water +1.", "mine": "2 Hard Stones. Rock +1.", "hut": "Crops sell +2 each.", "house": "Draw +1 card a turn.", "lighthouse": "+1 energy a turn.", "market": "+3 coins per good sold.", "store": "+3 coins. Picks show +1.", "pond": "Empty island → water.", "boulder": "Empty island → rock.", "meadow": "Empty island → grass.", "basket": "Gain 4 Oran Berries.", "fert": "Crops grow 2 turns.", "candy": "Pokémon here +3 XP.", "potion": "Heal Pokémon here, +1 XP.", "notes": "Draw 2 cards.", "sale": "Goods sell +50% today.", "festival": "Everything makes ×2 today.", "deed": "A free new island."};
+const SHORT = {"wheat": "2 Leeks every turn.", "corn": "3 Apples a turn. Ripe in 3.", "mushroom": "2 Mushrooms. Grass or rock.", "oran": "3 Oran Berries. Ripe in 2.", "razz": "2 Oran Berries. Ripe in 1.", "flowers": "Combee +2 Sweets. Heals.", "lotus": "Water. 2 Lotus Roots (food).", "clam": "Water. 2 Sea Scales.", "oddish": "Makes Oran Berries.", "bulbasaur": "Crops on its island +1.", "psyduck": "Makes Mystic Water.", "magikarp": "Weak, then Gyarados: 8!", "marill": "Water Pokémon here +1.", "wooper": "Mystic Water + Berries.", "geodude": "Digs Hard Stones.", "diglett": "Hard Stones. Crops here +1.", "miltank": "Juice, +1 per Leek. Eats 1.", "tauros": "+2 Juice per Miltank here.", "mareep": "Silk. Ampharos ×2 buildings.", "chansey": "Eggs, +1 per Apple Tree.", "combee": "Sweets from berries & flowers.", "pikachu": "+3 coins (Raichu +7).", "meowth": "Coins per Pokémon nearby.", "machop": "Everything here +1.", "eevee": "1 of each good made here.", "snorlax": "Eats 3. +20 coins.", "lotad": "Lotus Roots. Water crops +1.", "corsola": "Sea Scales, +1 per Clam.", "slowpoke": "Mystic Water (Slowbro 5).", "lapras": "+6 coins. Water Pokémon +1.", "fence": "Holds 2 Pokémon. Upkeep 1.", "furnace": "3 Hard Stones → Metal Coats.", "well": "+10 Water. Crops here +1.", "bakery": "2 Leeks + Berry → Gateau.", "lab": "Pokémon here +2 XP.", "daycare": "Copies a Pokémon card.", "bank": "Interest on your coins.", "ferry": "+3 coins per water island.", "barn": "Juice, Silk, Eggs here +1.", "tower": "Crops here & next door +1.", "center": "Pokémon here eat free.", "mart": "All goods sell +20%.", "gym": "Pokémon here +1 XP.", "dock": "2 Mystic Water. Water +1.", "mine": "2 Hard Stones. Rock +1.", "hut": "Crops sell +2 each.", "house": "Draw +1 card a turn.", "lighthouse": "+1 energy a turn.", "market": "+3 coins per good sold.", "store": "+3 coins. Picks show +1.", "pond": "Empty island → water.", "boulder": "Empty island → rock.", "meadow": "Empty island → grass.", "basket": "Gain 4 Oran Berries.", "fert": "Crops grow 2 turns.", "candy": "Pokémon here +3 XP.", "potion": "Heal Pokémon here, +1 XP.", "notes": "Draw 2 cards.", "sale": "Goods sell +50% today.", "festival": "Everything makes ×2 today.", "deed": "A free new island."};
 
 /* ---------- badges ---------- */
 const BADGES = {
@@ -128,7 +128,7 @@ const BADGES = {
   rising:{n:'Rising Badge',c:'#7a5bb5',e:'ribbon_dragon',t:'Crops ripen 1 turn sooner.'},
 };
 
-const RENT = [60, 170, 360, 650, 1050, 1600, 2300, 3200, 4300, 5600];   // taxes, every TAX_EVERY turns
+const RENT = [120, 350, 700, 1200, 1900, 2800, 4000, 5500, 7300, 9500];   // taxes, every TAX_EVERY turns
 const TAX_EVERY = 10, PICK_EVERY = 3;
 const WILD = [16, 19, 10, 13, 161, 263, 396, 399, 403, 531, 162];   // wild Pokémon that wander by
 
@@ -147,9 +147,12 @@ function newRun() {
   const board = [];
   for (let i = 0; i < G * G; i++) board.push(newTile('grass'));
   board[CENTER].owned = true;
-  const deck = ['well', 'wheat', 'wheat', 'wheat', 'oran', 'razz', 'fence', 'fence', 'oddish', 'miltank', 'mareep', 'psyduck', 'potion'].map(mk);
+  // Terracards starter deck: 6 Leek Patch (wheat), 4 Miltank (cow), 4 Well, 2 Fence.
+  // Day one always opens with 2 Leek Patch, 1 Well, 1 Fence, 1 Miltank; the rest is shuffled.
+  const firstHand = ['wheat', 'wheat', 'well', 'fence', 'miltank'].map(mk);
+  const deck = ['wheat', 'wheat', 'wheat', 'wheat', 'miltank', 'miltank', 'miltank', 'well', 'well', 'well', 'fence'].map(mk);
   S = {
-    turn: 1, coins: 20, energy: 3, freeRerolls: 3, rerolledThisTurn: false, deck: shuffle(deck), hand: [], discard: [], board,
+    turn: 1, coins: 20, energy: 3, freeRerolls: 3, rerolledThisTurn: false, deck: shuffle(deck), hand: firstHand, discard: [], board,
     stock: Object.fromEntries(RES_KEYS.map(k => [k, 0])),
     price: Object.fromEntries(RES_KEYS.map(k => [k, 1])),
     prevPrice: Object.fromEntries(RES_KEYS.map(k => [k, 1])),
@@ -195,15 +198,19 @@ const fmt = n => n.toLocaleString();
 function log(msg, cls = '') { S.log.unshift({msg, cls}); S.log.length = Math.min(S.log.length, 60); }
 
 /* ---------- water (Terracards rule: crops need water to work) ---------- */
-// Wells make 5 Water a turn and every water island adds 2. Each land crop drinks 1 Water a turn.
+// Wells make 10 Water a turn and every water island adds 2. Crops and Pokémon drink it (cost shown on their cards).
 // Crops are watered in order (island by island, square by square); without water a crop stops: no harvest, no growing.
 // water each crop drinks per turn (water crops drink 0)
 const WATER_COST = {wheat: 1, oran: 1, razz: 1, mushroom: 1, flowers: 1, corn: 2, lotus: 0, clam: 0};
 const waterCost = id => WATER_COST[id] !== undefined ? WATER_COST[id] : (CARDS[id].kind === 'crop' ? 1 : 0);
 const needsWater = o => kindOf(o) === 'crop' && waterCost(o.id) > 0;
-const waterSupply = () => 5 * countB('well') + 2 * owned().filter(j => T(j).t === 'water').length;
+const waterSupply = () => 10 * countB('well') + 2 * owned().filter(j => T(j).t === 'water').length;
+// Pokémon drink too: Miltank and Tauros 3 (like Terracards cows), others 1, water Pokémon 0 (they live in water)
+const monWater = id => ['miltank', 'tauros'].includes(id) ? 3 : (CARDS[id].terrain.length === 1 && CARDS[id].terrain[0] === 'water') ? 0 : 1;
 function waterPlan() {
   let left = waterSupply(); const dry = new Set(); let need = 0;
+  // Pokémon drink first (a thirsty Pokémon loses a heart), then the crops
+  for (const [, o] of allMons()) { const w = monWater(o.id); if (!w) continue; need += w; if (left >= w) left -= w; else dry.add(o.uid); }
   for (const i of owned()) for (const o of T(i).slots) if (o && needsWater(o)) { const w = waterCost(o.id); need += w; if (left >= w) left -= w; else dry.add(o.uid); }
   return {supply: waterSupply(), need, dry};
 }
@@ -256,6 +263,7 @@ function prodOf(i, o) {
     }
   } else if (d.kind === 'mon') {
     if (o.hungry) { out.why.push('Too hungry to work!'); return out; }
+    if (WATER.dry.has(o.uid)) { out.why.push('Thirsty! Build a Well'); return out; }
     const st = o.stage;
     if (d.prod) for (const k in d.prod) add(k, at(d.prod[k], st));
     if (d.coins) {
@@ -310,7 +318,7 @@ const allMons = () => { const r = []; for (const i of owned()) for (const o of o
 /* ---------- turn flow ---------- */
 function startTurn(first) {
   S.energy = energyMax();
-  draw(drawN());
+  if (!first) draw(drawN());   // day one uses the fixed starter hand
   if (!first) log(`— Turn ${S.turn} —`);
   render();
 }
@@ -352,7 +360,8 @@ function resolveTurn(res) {
     const free = occs(i).some(q => q.id === 'center');
     let need = foodOf(o);
     const total = FOOD.reduce((a, k) => a + S.stock[k], 0);
-    if (free || total >= need) {
+    const thirsty = WATER.dry.has(o.uid);
+    if ((free || total >= need) && !thirsty) {
       if (!free) for (const k of FOOD) { const e = Math.min(need, S.stock[k]); S.stock[k] -= e; need -= e; }
       o.hungry = false;
       let xp = 1 + countOn(i, 'gym') + 2 * countOn(i, 'lab'); if (has('zephyr')) xp *= 2;
@@ -364,7 +373,7 @@ function resolveTurn(res) {
       if (o.hearts <= 0) {
         if (has('soul')) { o.hearts = 1; log(`${stageName(o)} is starving but stays (Soul Badge).`, 'bad'); }
         else { log(`${stageName(o)} was too hungry and ran away!`, 'bad'); removeOcc(i, o); S.ranAway++; }
-      } else log(`${stageName(o)} went hungry (${o.hearts}♥ left). Grow more food!`, 'bad');
+      } else log(thirsty ? `${stageName(o)} was thirsty (${o.hearts}♥ left). Build a Well!` : `${stageName(o)} went hungry (${o.hearts}♥ left). Grow more food!`, 'bad');
     }
   }
 
@@ -552,8 +561,8 @@ function cardHTML(id, extra = '') {
   else { art = `<span class="bigico ico">${SVG[d.ico]}</span>`; type = d.kind === 'ter' ? 'Terrain' : d.target ? 'Action · tile' : 'Action'; }
   const rar = {C: '●', U: '◆', R: '★'}[d.rar];
   // water badge: what a crop drinks per turn, or what a Well makes
-  const wv = d.kind === 'crop' ? waterCost(id) : id === 'well' ? '+5' : null;
-  const water = wv === null ? '' : `<div class="wcost${id === 'well' ? ' plus' : ''}" title="${id === 'well' ? 'Makes 5 Water a turn' : `Drinks ${wv} Water a turn`}"><img src="${ART}items/water_gem.png" alt="">${wv}</div>`;
+  const wv = d.kind === 'crop' ? waterCost(id) : d.kind === 'mon' ? monWater(id) : id === 'well' ? '+10' : null;
+  const water = wv === null ? '' : `<div class="wcost${id === 'well' ? ' plus' : ''}" title="${id === 'well' ? 'Makes 10 Water a turn' : `Drinks ${wv} Water a turn`}"><img src="${ART}items/water_gem.png" alt="">${wv}</div>`;
   return `<div class="card ${cardKindClass(d)}${water ? ' has-w' : ''} ${extra}" data-id="${id}">
     <div class="cost">${d.cost}</div>${water}<div class="band">${d.name}</div>
     <div class="art">${art}</div><div class="type">${type}</div><div class="txt" title="${d.text}">${SHORT[id] || d.text}</div><div class="rar">${rar}</div></div>`;
@@ -852,7 +861,8 @@ function showHelp() {
     <li>Things on the <b>same island</b> help each other: Miltank grazes Leeks, Combee loves flowers, Machop helps everyone, a Barn boosts animals…</li>
     <li>Goods sell at the end of each turn. Prices move, so tick <b>hold</b> to wait for a better price.</li>
     <li>Click <b>+ LAND</b> to buy a new island next to yours. You choose grass, water or rock.</li>
-    <li><b>Water:</b> every crop drinks 1 Water a turn. Wells make 5 (water islands 2). A crop with no water does nothing.</li>
+    <li><b>Water:</b> Wells make 10 Water a turn (water islands 2). Crops and Pokémon drink it — the blue badge on each card shows how much. No water = no harvest, and thirsty Pokémon lose hearts.</li>
+    <li><b>Starter deck</b> (like Terracards): 6 Leek Patch, 4 Miltank, 4 Well, 2 Fence. Day one: 2 Leek, 1 Well, 1 Fence, 1 Miltank.</li>
     <li>Matching crops <b>side by side</b> make +1. Pokémon live in <b>Fences</b> (2 each).</li>
     <li>Wells and Fences cost <b>1 coin upkeep</b> a turn.</li>
     <li>Every <b>10 turns</b> pay taxes; if your coins go below zero the run ends. Each payment earns a <b>badge</b>. Every 3 turns you pick a new card (free rerolls build up).</li></ul></div>

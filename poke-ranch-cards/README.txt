@@ -6,10 +6,11 @@ How it plays
   You start with ONE island tile. Every island has 12 slots (4 x 3). Put crops (Leek Patch, Apple Tree, Oran Tree, Razz Bush,
   Mushroom Patch, Flower Bed), Pokemon and buildings in the slots. Things on the same island help each other.
   Buy more islands next to yours (you choose grass, water or rock).
-  Terracards-style rules: Wells make Water (5 each, water islands 2); every land crop drinks Water each turn (Apple Tree 2, water crops 0; shown on the card)
+  Terracards-style rules: Wells make Water (10 each, water islands 2); every land crop drinks Water each turn (Apple Tree 2, water crops 0; shown on the card)
   or does nothing. Same crops side by side make +1. Wells and Fences cost 1 coin upkeep a turn.
   Taxes every 10 turns; coins below zero at the end of a day ends the run. Card picks every 3 turns,
-  3 free rerolls to start and +1 for each turn you don't reroll. The Well is in the starting deck.
+  3 free rerolls to start and +1 for each turn you don't reroll. Starter deck (like Terracards): 6 Leek Patch, 4 Miltank, 4 Well, 2 Fence; day one opens with
+  2 Leek, 1 Well, 1 Fence, 1 Miltank. Wells make 10 Water; Miltank drinks 3, other Pokemon 1.
   Tap the exact square to plant or build. Pokemon must go in a Fence (2 per fence) and walk inside it.
   Workshops: Furnace (Hard Stones -> Metal Coats), Bakery (Leeks + Oran Berry -> Old Gateau), Well, Lab,
   Day Care, Bank. Water islands: Lotus Root, Clam Bed, Ferry Port, Lotad, Corsola, Slowpoke, Lapras.
