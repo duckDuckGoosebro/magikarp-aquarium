@@ -17,7 +17,8 @@ BERRY = os.path.join(OB, 'pokeplatinum/res/graphics/field_sprites/berry_trees')
 DEX = [43,44,45,54,55,129,130,74,75,76,241,179,180,181,113,242,415,416,25,26,1,2,3,52,53,66,67,68,
        50,51,194,195,133,143,128,183,184,
        # extra wild visitors that wander the island
-       16,19,10,13,161,162,263,396,399,403,531]
+       16,19,10,13,161,162,263,396,399,403,531,
+       270,271,272,222,79,80,131]
 
 def mk(d): os.makedirs(os.path.join(OUT, d), exist_ok=True)
 for d in ['walk', 'ground', 'scenery', 'crops', 'portraits', 'icons']: mk(d)
@@ -57,26 +58,12 @@ print('walk sheets', len(walk))
 # ---- ground textures ----
 hg = Image.open(HG).convert('RGBA')
 hg.crop((48, 0, 64, 16)).save(os.path.join(OUT, 'ground/grass.png'))
-hg.crop((224, 0, 256, 32)).save(os.path.join(OUT, 'scenery/tallgrass_hg.png'))
-hg.crop((224, 96, 256, 128)).save(os.path.join(OUT, 'scenery/flowers_hg.png'))
 for sub, f, name in [('beach', '289', 'sand'), ('beach', '368', 'water'), ('beach', '327', 'water_edge'), ('summit', '279', 'rock'),
                      ('volcano', '517', 'rock2'), ('meadow', '1', 'meadow')]:
     shutil.copy(os.path.join(PMD, sub, f + '.png'), os.path.join(OUT, 'ground', name + '.png'))
 
-# ---- scenery objects ----
-crops = {  # name: box in the HGSS sheet
-    'tree_yellow': (0, 2128, 96, 2240), 'tree_yellow2': (96, 2128, 192, 2240),
-    'tree_big': (0, 2318, 96, 2433), 'tree_big2': (96, 2318, 192, 2433),
-}
-for k, b in crops.items():
-    im = hg.crop(b); bb = im.getbbox()
-    if bb: im = im.crop(bb)
-    im.save(os.path.join(OUT, 'scenery', k + '.png'))
-for sub, f, name in [('meadow', '21', 'tallgrass'), ('meadow', '4', 'flowerbush'), ('meadow', '13', 'bush'), ('meadow', '14', 'bush2'),
-                     ('meadow', '468', 'bigbush'), ('summit', '504', 'boulder'), ('summit', '505', 'boulder2'),
-                     ('cave', '798', 'crystal'), ('cave', '806', 'ruby')]:
-    shutil.copy(os.path.join(PMD, sub, f + '.png'), os.path.join(OUT, 'scenery', name + '.png'))
-# small HGSS objects (pine trees, rocks, sign, flowers...) are cut by find_objects() below
+# ---- no scenery objects on the islands (owner's rule). Only soil.png (under crops) and flowerbed.png
+#      (the Flower Bed card) live in assets/scenery; they were cut from the HGSS sheet by hand. ----
 
 # ---- crops: Platinum berry trees (every crop grows through real berry-tree stages) ----
 CROP_TREES = {'oran': 'oran', 'razz': 'razz', 'leek': 'pinap', 'apple': 'aspear', 'mushroom': 'rawst'}
@@ -93,6 +80,6 @@ for it in ['oran_berry', 'leek', 'sweet_apple', 'big_mushroom', 'mystic_water', 
            'common_egg', 'flower_sweet', 'nugget', 'pp_up', 'berry_pouch', 'miracle_seed', 'rare_candy', 'potion', 'map',
            'amulet_coin', 'sun_flute', 'mystic_ticket', 'water_stone', 'everstone', 'leaf_stone', 'pb',
            'ribbon_rock', 'ribbon_water', 'ribbon_grass', 'ribbon_electric', 'ribbon_psychic', 'ribbon_fire', 'ribbon_ground',
-           'ribbon_flying', 'ribbon_fairy', 'ribbon_bug', 'ribbon_normal', 'ribbon_ghost', 'ribbon_steel', 'ribbon_ice', 'ribbon_dragon']:
+           'ribbon_flying', 'ribbon_fairy', 'ribbon_bug', 'ribbon_normal', 'ribbon_ghost', 'ribbon_steel', 'ribbon_ice', 'ribbon_dragon', 'metal_coat', 'old_gateau', 'deep_sea_scale', 'big_root', 'shell_bell']:
     shutil.copy(os.path.join(ITEMS, it + '.png'), os.path.join(OUT, 'items', it + '.png'))
 print('done')

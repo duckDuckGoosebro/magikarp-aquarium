@@ -18,6 +18,7 @@ const ITEM = {
   milk:'berry_juice_good', wool:'silk_scarf', egg:'common_egg', honey:'flower_sweet', coin:'nugget', bolt:'pp_up',
   basket:'berry_pouch', fert:'miracle_seed', candy:'rare_candy', potion:'potion', notes:'map', sale:'amulet_coin',
   sun:'sun_flute', deed:'mystic_ticket', water_ter:'water_stone', rock_ter:'everstone', grass_ter:'leaf_stone',
+  metal:'metal_coat', gateau:'old_gateau', scale:'deep_sea_scale', root:'big_root',
 };
 const SVG = Object.fromEntries(Object.entries(ITEM).map(([k, v]) => [k, `<img class="gimg" src="${ART}items/${v}.png" alt="">`]));
 const svgIco = (k, s = 16) => `<span class="ico" style="width:${s}px;height:${s}px">${SVG[k]}</span>`;
@@ -26,10 +27,11 @@ const svgIco = (k, s = 16) => `<span class="ico" style="width:${s}px;height:${s}
 const RES = {
   berry:{n:'Oran Berries',base:2}, wheat:{n:'Leeks',base:3}, corn:{n:'Sweet Apples',base:4}, mushroom:{n:'Big Mushrooms',base:6},
   fish:{n:'Mystic Water',base:4}, ore:{n:'Hard Stones',base:6}, milk:{n:'Berry Juice',base:5}, wool:{n:'Silk',base:5},
-  egg:{n:'Eggs',base:8}, honey:{n:'Sweets',base:9},
+  egg:{n:'Eggs',base:8}, honey:{n:'Sweets',base:9}, root:{n:'Lotus Roots',base:3}, scale:{n:'Sea Scales',base:7},
+  metal:{n:'Metal Coats',base:14}, gateau:{n:'Old Gateaux',base:16},
 };
 const RES_KEYS = Object.keys(RES);
-const FOOD = ['berry', 'corn', 'wheat', 'mushroom'];
+const FOOD = ['berry', 'corn', 'root', 'wheat', 'mushroom'];
 
 /* ---------- cards ---------- */
 // kind: crop | mon | bld | ter | act.  terrain: which land it can go on.
@@ -40,6 +42,8 @@ const CARDS = {
   mushroom:{kind:'crop',name:'Mushroom Patch',cost:1,rar:'U',terrain:['grass','rock'],img:'mushroom',grow:3,make:{mushroom:2},text:'Grows on grass or rock. Ripe in 3 turns, then 2 Big Mushrooms.'},
   oran:{kind:'crop',name:'Oran Tree',cost:1,rar:'C',terrain:['grass'],img:'oran',grow:2,make:{berry:3},text:'Ripe in 2 turns, then 3 Oran Berries every turn.'},
   razz:{kind:'crop',name:'Razz Bush',cost:0,rar:'U',terrain:['grass'],img:'razz',grow:1,make:{berry:2},text:'Ripe next turn, then 2 Oran Berries. Combee love it.'},
+  lotus:{kind:'crop',name:'Lotus Root',cost:0,rar:'C',terrain:['water'],icon:'big_root',grow:2,make:{root:2},text:'Water crop. Ripe in 2 turns, then 2 Lotus Roots (Pokémon food).'},
+  clam:{kind:'crop',name:'Clam Bed',cost:1,rar:'U',terrain:['water'],icon:'deep_sea_scale',grow:3,make:{scale:2},text:'Water crop. Ripe in 3 turns, then 2 Sea Scales every turn.'},
   flowers:{kind:'crop',name:'Flower Bed',cost:0,rar:'U',terrain:['grass'],img:'flowers',grow:0,make:{},scenery:true,text:'Makes nothing. Combee +2 Honey each, Pokémon here heal.'},
   // Pokémon
   oddish:{kind:'mon',name:'Oddish',cost:1,rar:'C',terrain:['grass'],line:[[43,'Oddish'],[44,'Gloom'],[45,'Vileplume']],evo:[3,7],prod:{berry:[2,3,4]},text:'Makes Oran Berries.'},
@@ -59,8 +63,20 @@ const CARDS = {
   meowth:{kind:'mon',name:'Meowth',cost:1,rar:'C',terrain:['grass','rock'],line:[[52,'Meowth'],[53,'Persian']],evo:[4],coins:[1,2],text:'Pay Day: coins for each other Pokémon on its tile and next door.'},
   machop:{kind:'mon',name:'Machop',cost:2,rar:'U',terrain:['grass','rock'],line:[[66,'Machop'],[67,'Machoke'],[68,'Machamp']],evo:[3,7],aura:[1,1,2],text:'Works hard: everything else on its island makes +1 (Machamp +2).'},
   eevee:{kind:'mon',name:'Eevee',cost:2,rar:'R',terrain:['grass'],line:[[133,'Eevee']],evo:[],copy:true,text:'Makes 1 of every good the rest of its island makes.'},
+  lotad:{kind:'mon',name:'Lotad',cost:1,rar:'C',terrain:['water'],line:[[270,'Lotad'],[271,'Lombre'],[272,'Ludicolo']],evo:[3,7],prod:{root:[1,2,3]},text:'Lotus Roots. Water crops on its island make +1.'},
+  corsola:{kind:'mon',name:'Corsola',cost:2,rar:'U',terrain:['water'],line:[[222,'Corsola']],evo:[],prod:{scale:[2]},text:'2 Sea Scales, +1 per Clam Bed on its island.'},
+  slowpoke:{kind:'mon',name:'Slowpoke',cost:1,rar:'U',terrain:['water'],line:[[79,'Slowpoke'],[80,'Slowbro']],evo:[5],prod:{fish:[2,5]},text:'Mystic Water. Slow to grow, Slowbro makes 5.'},
+  lapras:{kind:'mon',name:'Lapras',cost:3,rar:'R',terrain:['water'],line:[[131,'Lapras']],evo:[],coins:[6],text:'Ferries visitors: +6 coins. Water Pokémon on its island make +1.'},
   snorlax:{kind:'mon',name:'Snorlax',cost:3,rar:'R',terrain:['grass'],line:[[143,'Snorlax']],evo:[],coins:[20],food:3,text:'Eats 3 food. Fans pay 20 coins a turn to watch it nap.'},
   // Buildings
+  fence:{kind:'bld',name:'Fence',cost:1,rar:'C',terrain:['grass','rock','water'],img:'fence',text:'A pen for 2 Pokémon. Pokémon cards can only go in a Fence.'},
+  furnace:{kind:'bld',name:'Furnace',cost:2,rar:'U',terrain:['grass','rock'],img:'furnace',text:'Each turn smelts up to 3 Hard Stones into Metal Coats (worth 14).'},
+  well:{kind:'bld',name:'Well',cost:1,rar:'C',terrain:['grass','rock'],img:'well',text:'Crops on this island grow 1 extra turn each turn.'},
+  bakery:{kind:'bld',name:'Bakery',cost:2,rar:'U',terrain:['grass','rock'],img:'bakery',text:'Each turn bakes up to 2 Old Gateaux (worth 16), each from 2 Leeks + 1 Oran Berry.'},
+  lab:{kind:'bld',name:'Pokémon Lab',cost:2,rar:'R',terrain:['grass','rock'],img:'lab',text:'Pokémon on this island get +2 XP each turn.'},
+  daycare:{kind:'bld',name:'Day Care',cost:2,rar:'R',terrain:['grass'],img:'daycare',text:'Every 3 turns, adds a copy of a Pokémon card from this island to your deck.'},
+  bank:{kind:'bld',name:'Bank',cost:2,rar:'U',terrain:['grass','rock'],img:'bank',text:'Interest: +1 coin per 15 you hold (max +12).'},
+  ferry:{kind:'bld',name:'Ferry Port',cost:2,rar:'U',terrain:['water'],img:'ferry',text:'+3 coins for each water island you own.'},
   barn:{kind:'bld',name:'Barn',cost:1,rar:'C',terrain:['grass'],img:'barn',text:'Berry Juice, Silk and Egg makers on this island make +1.'},
   tower:{kind:'bld',name:'Water Tower',cost:1,rar:'C',terrain:['grass','rock'],img:'watertower',text:'Crops on this island and the islands next to it make +1.'},
   center:{kind:'bld',name:'Poké Center',cost:2,rar:'U',terrain:['grass','rock'],img:'center',text:'Pokémon on this island eat for free and heal.'},
@@ -126,7 +142,7 @@ function newRun() {
   const board = [];
   for (let i = 0; i < G * G; i++) board.push(newTile('grass'));
   board[CENTER].owned = true;
-  const deck = ['wheat', 'wheat', 'wheat', 'wheat', 'oran', 'razz', 'oddish', 'miltank', 'mareep', 'psyduck', 'basket', 'potion'].map(mk);
+  const deck = ['wheat', 'wheat', 'wheat', 'oran', 'razz', 'fence', 'fence', 'oddish', 'miltank', 'mareep', 'psyduck', 'potion'].map(mk);
   S = {
     turn: 1, coins: 15, energy: 3, deck: shuffle(deck), hand: [], discard: [], board,
     stock: Object.fromEntries(RES_KEYS.map(k => [k, 0])),
@@ -146,7 +162,10 @@ function newRun() {
 const rc = i => [Math.floor(i / G), i % G];
 const nbs = i => { const [r, c] = rc(i), o = []; if (r > 0) o.push(i - G); if (r < G - 1) o.push(i + G); if (c > 0) o.push(i - 1); if (c < G - 1) o.push(i + 1); return o; };
 const T = i => S.board[i];
-const occs = i => T(i).slots.filter(Boolean);
+// everything on an island: what is in the 12 squares, plus the Pokémon living in its fences
+const occs = i => { const r = []; for (const o of T(i).slots) if (o) { r.push(o); if (o.mons) r.push(...o.mons); } return r; };
+const fenceRoom = (i, s) => { const o = T(i).slots[s]; return !!o && o.id === 'fence' && o.mons.length < 2; };
+function removeOcc(i, o) { const t = T(i), k = t.slots.indexOf(o); if (k >= 0) { t.slots[k] = null; return; } for (const f of t.slots) if (f && f.mons) { const j = f.mons.indexOf(o); if (j >= 0) f.mons.splice(j, 1); } }
 const kindOf = o => CARDS[o.id].kind;
 const monsOn = i => occs(i).filter(o => kindOf(o) === 'mon');
 const countOn = (i, id) => occs(i).filter(o => o.id === id).length;
@@ -171,9 +190,9 @@ const fmt = n => n.toLocaleString();
 function log(msg, cls = '') { S.log.unshift({msg, cls}); S.log.length = Math.min(S.log.length, 60); }
 
 /* ---------- production ---------- */
-// What one slot makes this turn: {items, coins, why}
-function prodOf(i, s) {
-  const o = T(i).slots[s], out = {items: {}, coins: 0, why: []};
+// What one thing on an island makes this turn: {items, coins, why}
+function prodOf(i, o) {
+  const out = {items: {}, coins: 0, why: []};
   if (!o) return out;
   const d = CARDS[o.id], t = T(i).t, here = occs(i).filter(x => x !== o);
   const add = (k, n) => { out.items[k] = (out.items[k] || 0) + n; };
@@ -190,6 +209,7 @@ function prodOf(i, s) {
       if (q.id === 'bulbasaur' && !q.hungry) B(at(CARDS.bulbasaur.aura, q.stage), stageName(q));
       if (q.id === 'diglett' && !q.hungry) B(1, 'Diglett tills');
       if (q.id === 'tower') B(1, 'Water Tower');
+      if (q.id === 'lotad' && !q.hungry && T(i).t === 'water') B(1, stageName(q));
     }
     const towersNear = nbs(i).reduce((a, j) => a + countOn(j, 'tower'), 0);
     if (towersNear) B(towersNear, 'Water Tower next door');
@@ -198,6 +218,7 @@ function prodOf(i, s) {
   } else if (d.kind === 'bld') {
     if (d.make) for (const k in d.make) add(k, d.make[k]);
     if (d.coinsB) out.coins += d.coinsB;
+    if (o.id === 'ferry') { const n = owned().filter(j => T(j).t === 'water').length; out.coins += 3 * n; out.why.push(`${n} water island(s)`); }
     if (has('mineral')) { out.coins += 2; out.why.push('Mineral Badge +2 coins'); }
     if (d.make) tileAura();
     if (here.some(q => q.id === 'mareep' && q.stage === 2 && !q.hungry)) {
@@ -217,6 +238,7 @@ function prodOf(i, s) {
     if (o.id === 'mareep') B(here.some(q => q.id === 'wheat') ? 1 : 0, 'Leeks to graze');
     if (o.id === 'chansey') B(here.filter(q => q.id === 'corn').length, 'Apples to peck');
     if (o.id === 'tauros') B(2 * here.filter(q => q.id === 'miltank').length, 'Miltank friends');
+    if (o.id === 'corsola') B(here.filter(q => q.id === 'clam').length, 'Clam Beds');
     if (o.id === 'combee') {
       const n = here.filter(q => ['oran', 'razz'].includes(q.id)).length + 2 * here.filter(q => q.id === 'flowers').length;
       out.items.honey = n * (st + 1); if (n) out.why.push(`${n} from flowers & berries`);
@@ -228,7 +250,7 @@ function prodOf(i, s) {
       if (q.id === 'barn' && ['milk', 'wool', 'egg'].includes(m)) B(1, 'Barn');
       if (q.id === 'dock' && terr === 'water') B(1, 'Fishing Boat');
       if (q.id === 'mine' && terr === 'rock') B(1, 'Mine');
-      if (q.id === 'marill' && terr === 'water' && !q.hungry) B(1, stageName(q));
+      if ((q.id === 'marill' || q.id === 'lapras') && terr === 'water' && !q.hungry) B(1, stageName(q));
     }
     if (terr === 'rock' && has('boulder')) B(1, 'Boulder Badge');
     if (terr === 'water' && has('cascade')) B(1, 'Cascade Badge');
@@ -242,7 +264,7 @@ function prodOf(i, s) {
 }
 function prodTile(i) {
   const r = {items: {}, coins: 0};
-  for (let s = 0; s < SLOTS; s++) { const p = prodOf(i, s); r.coins += p.coins; for (const k in p.items) r.items[k] = (r.items[k] || 0) + p.items[k]; }
+  for (const o of occs(i)) { const p = prodOf(i, o); r.coins += p.coins; for (const k in p.items) r.items[k] = (r.items[k] || 0) + p.items[k]; }
   return r;
 }
 function estimateIncome() {
@@ -253,7 +275,7 @@ function estimateIncome() {
   for (const k in items) if (!S.hold[k]) coins += items[k] * sellPrice(k);
   return coins;
 }
-const allMons = () => { const r = []; for (const i of owned()) for (const o of T(i).slots) if (o && kindOf(o) === 'mon') r.push([i, o]); return r.sort((a, b) => a[1].uid - b[1].uid); };
+const allMons = () => { const r = []; for (const i of owned()) for (const o of occs(i)) if (kindOf(o) === 'mon') r.push([i, o]); return r.sort((a, b) => a[1].uid - b[1].uid); };
 
 /* ---------- turn flow ---------- */
 function startTurn(first) {
@@ -289,7 +311,7 @@ function resolveTurn(res) {
 
   // crops grow
   for (const i of owned()) for (const o of T(i).slots) if (o && kindOf(o) === 'crop') {
-    const was = ripe(o); o.age++; if (!was && ripe(o) && growNeed(o) > 0) log(`${CARDS[o.id].name} is ripe!`, 'gd');
+    const was = ripe(o); o.age += 1 + countOn(i, 'well'); if (!was && ripe(o) && growNeed(o) > 0) log(`${CARDS[o.id].name} is ripe!`, 'gd');
   }
 
   // feed: berries, then corn, then wheat
@@ -300,7 +322,7 @@ function resolveTurn(res) {
     if (free || total >= need) {
       if (!free) for (const k of FOOD) { const e = Math.min(need, S.stock[k]); S.stock[k] -= e; need -= e; }
       o.hungry = false;
-      let xp = 1 + countOn(i, 'gym'); if (has('zephyr')) xp *= 2;
+      let xp = 1 + countOn(i, 'gym') + 2 * countOn(i, 'lab'); if (has('zephyr')) xp *= 2;
       gainXP(o, xp);
       const heal = (free ? 1 : 0) + occs(i).filter(q => (q.id === 'chansey' && q !== o) || q.id === 'flowers').length;
       o.hearts = Math.min(3, o.hearts + heal);
@@ -308,11 +330,17 @@ function resolveTurn(res) {
       o.hungry = true; o.hearts -= 1;
       if (o.hearts <= 0) {
         if (has('soul')) { o.hearts = 1; log(`${stageName(o)} is starving but stays (Soul Badge).`, 'bad'); }
-        else { log(`${stageName(o)} was too hungry and ran away!`, 'bad'); const t = T(i); t.slots[t.slots.indexOf(o)] = null; S.ranAway++; }
+        else { log(`${stageName(o)} was too hungry and ran away!`, 'bad'); removeOcc(i, o); S.ranAway++; }
       } else log(`${stageName(o)} went hungry (${o.hearts}♥ left). Grow more food!`, 'bad');
     }
   }
 
+  // workshops turn goods into better goods
+  for (let k = 0; k < countB('furnace'); k++) { const n = Math.min(3, S.stock.ore); if (n) { S.stock.ore -= n; S.stock.metal += n; log(`The Furnace smelted ${n} Metal Coat(s).`); } }
+  for (let k = 0; k < countB('bakery'); k++) for (let b = 0; b < 2 && S.stock.wheat >= 2 && S.stock.berry >= 1; b++) { S.stock.wheat -= 2; S.stock.berry -= 1; S.stock.gateau++; log('The Bakery baked an Old Gateau.'); }
+  // Day Care: every 3 turns, a copy of a Pokémon card from its island
+  if (S.turn % 3 === 0) for (const i of owned()) for (let k = 0; k < countOn(i, 'daycare'); k++) { const m = monsOn(i); if (m.length) { const o = pick(m); S.discard.push(mk(o.id)); log(`The Day Care found a ${CARDS[o.id].name} card for your deck!`, 'gd'); } }
+  if (countB('bank')) { const it = Math.min(12 * countB('bank'), countB('bank') * Math.floor(S.coins / 15)); if (it) { coins += it; log(`Bank interest +${it}.`); } }
   // sell
   let sold = 0, kinds = 0;
   for (const k of RES_KEYS) {
@@ -359,13 +387,21 @@ function runQueue(q, done) { if (!q.length) { closeModal(); return done(); } con
 const canAfford = c => CARDS[c.id].cost <= S.energy;
 function validTarget(cardId, i) {
   const d = CARDS[cardId], t = T(i);
-  if (['crop', 'mon', 'bld'].includes(d.kind)) return t.owned && freeSlot(i) >= 0 && d.terrain.includes(t.t);
+  if (['crop', 'mon', 'bld'].includes(d.kind)) return t.owned && d.terrain.includes(t.t) && t.slots.some((o, s) => validSlot(cardId, i, s));
   if (d.kind === 'ter') return t.owned && !occs(i).length && t.t !== d.to;
   if (d.target === 'mon') return t.owned && monsOn(i).length > 0;
   if (d.target === 'tile') return t.owned && occs(i).some(o => kindOf(o) === 'crop');
   if (d.target === 'land') return buyable(i);
   return false;
 }
+// crops and buildings go in the EMPTY square you tap; Pokémon go in a Fence with room
+function validSlot(cardId, i, s) {
+  const d = CARDS[cardId], t = T(i);
+  if (!t.owned || !d.terrain || !d.terrain.includes(t.t)) return false;
+  if (d.kind === 'mon') return fenceRoom(i, s);
+  return !t.slots[s];
+}
+const slotCard = id => ['crop', 'mon', 'bld'].includes(CARDS[id].kind);
 function selectCard(h) {
   if (busy) return;
   const c = S.hand[h], d = CARDS[c.id];
@@ -383,18 +419,18 @@ function playUntargeted(h) {
   if (c.id === 'festival') { S.mods.festival = true; log('Harvest Festival! Everything makes double this turn.', 'gd'); }
   S.discard.push(c); render();
 }
-function clickTile(i) {
+function clickTile(i, s) {
   if (busy || S.over) return;
   if (S.sel !== null) {
     const c = S.hand[S.sel], d = CARDS[c.id];
     if (!validTarget(c.id, i)) { tipFlash(whyNot(c.id, i)); return; }
+    if (slotCard(c.id) && (s === undefined || s === null || !validSlot(c.id, i, s))) { tipFlash(whyNotSlot(c.id, i, s)); return; }
     spend(S.sel);
     const t = T(i);
-    if (['crop', 'mon', 'bld'].includes(d.kind)) {
-      const s = freeSlot(i);
-      if (d.kind === 'mon') { t.slots[s] = {id: c.id, uid: uidc++, stage: 0, xp: 0, hearts: 3, hungry: false}; log(`${d.name} moved onto your island!`); }
+    if (slotCard(c.id)) {
+      if (d.kind === 'mon') { t.slots[s].mons.push({id: c.id, uid: uidc++, stage: 0, xp: 0, hearts: 3, hungry: false}); log(`${d.name} moved into the Fence!`); }
       else if (d.kind === 'crop') { t.slots[s] = {id: c.id, uid: uidc++, age: 0}; log(`Planted ${d.name}.`); }
-      else { t.slots[s] = {id: c.id, uid: uidc++}; log(`Built a ${d.name}.`); }
+      else { t.slots[s] = c.id === 'fence' ? {id: c.id, uid: uidc++, mons: []} : {id: c.id, uid: uidc++}; log(`Built a ${d.name}.`); }
     } else if (d.kind === 'ter') { t.t = d.to; S.discard.push(c); log(`${d.name}: the tile is now ${d.to}.`); }
     else if (c.id === 'candy') { monsOn(i).forEach(o => gainXP(o, 3)); log('Rare Candy for everyone on the tile!'); S.discard.push(c); }
     else if (c.id === 'potion') { monsOn(i).forEach(o => { o.hearts = 3; o.hungry = false; gainXP(o, 1); }); log('Healed the Pokémon on the tile.'); S.discard.push(c); }
@@ -426,6 +462,12 @@ function chooseTerrain(i, paid) {
     log(`New ${t.t} island claimed!`, 'gd'); closeModal(); render();
   });
 }
+function whyNotSlot(id, i, s) {
+  const d = CARDS[id];
+  if (d.kind === 'mon') return s !== undefined && s !== null && T(i).slots[s] && T(i).slots[s].id === 'fence' ? 'This Fence is full (2 Pokémon)' : 'Tap a Fence with room — Pokémon live in Fences';
+  if (s === undefined || s === null) return 'Tap an empty square';
+  return 'That square is taken — tap an empty one';
+}
 function whyNot(id, i) {
   const d = CARDS[id], t = T(i);
   if (d.target === 'mon') return 'Pick a tile with a Pokémon';
@@ -433,13 +475,15 @@ function whyNot(id, i) {
   if (d.target === 'land') return 'Pick a spot next to your island';
   if (!t.owned) return 'That is not your land yet';
   if (d.kind === 'ter') return 'The tile must be empty';
-  if (freeSlot(i) < 0) return 'All 12 slots are full';
+  if (d.kind === 'mon') return `${d.name} needs a Fence with room on a ${d.terrain.join(' or ')} island`;
+  if (freeSlot(i) < 0) return 'All 12 squares are full';
   if (d.terrain && !d.terrain.includes(t.t)) return `${d.name} needs ${d.terrain.join(' or ')}`;
   return "Can't play there";
 }
-function release(i, s) {
-  const o = T(i).slots[s]; if (!o || busy) return;
-  T(i).slots[s] = null;
+function release(i, uid) {
+  const o = occs(i).find(q => q.uid === uid); if (!o || busy) return;
+  if (o.mons && o.mons.length) { tipFlash('Release the Pokémon in this Fence first'); return; }
+  removeOcc(i, o);
   log(`${kindOf(o) === 'mon' ? stageName(o) + ' was released into the wild' : CARDS[o.id].name + ' was cleared'}.`);
   render();
 }
@@ -455,12 +499,13 @@ function cardKindClass(d) {
 function cropImg(id, stage) { // stage 1..3
   const d = CARDS[id];
   if (id === 'flowers') return simg('flowerbed');
+  if (d.icon) return `${ART}items/${d.icon}.png`;
   return cimg(`${d.img}_${stage}`);
 }
 function cardHTML(id, extra = '') {
   const d = CARDS[id];
   let art, type;
-  if (d.kind === 'mon') { art = `<img class="portrait" src="${portrait(d.line[0][0])}" alt="">`; type = `Pokémon · ${d.terrain.join('/')}`; }
+  if (d.kind === 'mon') { art = `<img class="portrait" src="${portrait(d.line[0][0])}" alt="">`; type = `Pokémon · Fence on ${d.terrain.join('/')}`; }
   else if (d.kind === 'bld') { art = `<img src="${bimg(d.img)}" alt="">`; type = `Building · ${d.terrain.join('/')}`; }
   else if (d.kind === 'crop') { art = id === 'flowers' ? `<img class="crop" src="${cropImg(id, 3)}" alt="" style="height:auto;width:90px">` : `<img class="crop" src="${cropImg(id, 3)}" alt=""><img class="cropitem" src="${ART}items/${ITEM[Object.keys(d.make)[0]]}.png" alt="">`; type = `Crop · ${d.terrain.join('/')}`; }
   else { art = `<span class="bigico ico">${SVG[d.ico]}</span>`; type = d.kind === 'ter' ? 'Terrain' : d.target ? 'Action · tile' : 'Action'; }
@@ -539,12 +584,12 @@ function render() {
     let cls = 'tile', inner = '';
     if (t.owned) {
       cls += ' owned ' + t.t + (S.lock === i ? ' locked' : '');
-      inner = `<div class="ground"></div><div class="slots">` + t.slots.map((o, s) => slotHTML(o, i, s)).join('') + '</div>';
+      inner = `<div class="ground"></div><div class="slots">` + t.slots.map((o, s) => slotHTML(o, i, s, sel && slotCard(sel.id) && validSlot(sel.id, i, s))).join('') + '</div>';
     } else {
       cls += ' buy';
       inner = sel && CARDS[sel.id].target === 'land' ? '<div class="cost">FREE</div>' : `<div class="cost">+ LAND<span>${svgIco('coin', 14)} ${landCost()}</span></div>`;
     }
-    if (sel) cls += validTarget(sel.id, i) ? ' target' : (t.owned ? ' dim' : '');
+    if (sel) cls += validTarget(sel.id, i) ? (slotCard(sel.id) ? ' target-slots' : ' target') : (t.owned ? ' dim' : '');
     html += `<div class="${cls}" data-i="${i}" style="left:${x}px;top:${y}px">${inner}</div>`;
   });
   $('tiles').innerHTML = html;
@@ -555,17 +600,18 @@ function render() {
   $('log').innerHTML = S.log.map(l => `<div class="${l.cls}">${l.msg}</div>`).join('');
   showInfo(S.lock !== null ? S.lock : hoverTile);
 }
-function slotHTML(o, i, s) {
-  if (!o) return `<div class="slot empty" data-s="${s}"></div>`;
+function slotHTML(o, i, s, glow) {
+  const g = glow ? ' glow' : '';
+  if (!o) return `<div class="slot empty${g}" data-s="${s}"></div>`;
   const d = CARDS[o.id];
   if (d.kind === 'crop') {
     const need = growNeed(o), st = o.id === 'flowers' ? 3 : need === 0 ? 3 : Math.min(3, 1 + Math.floor(o.age * 3 / (need + 1)));
     const wide = o.id === 'flowers' ? ' wide' : '';
-    return `<div class="slot crop" data-s="${s}">${o.id === 'flowers' ? '' : `<img class="soil" src="${simg('soil')}" alt="">`}<img class="cropimg${wide}" src="${cropImg(o.id, ripe(o) ? 3 : st)}" alt="">${ripe(o) ? '' : `<span class="grow">${need - o.age}t</span>`}</div>`;
+    const icon = CARDS[o.id].icon ? ` itemcrop st${ripe(o) ? 3 : st}` : '';
+    return `<div class="slot crop${g}" data-s="${s}">${o.id === 'flowers' || CARDS[o.id].icon ? '' : `<img class="soil" src="${simg('soil')}" alt="">`}<img class="cropimg${wide}${icon}" src="${cropImg(o.id, ripe(o) ? 3 : st)}" alt="">${ripe(o) ? '' : `<span class="grow">${need - o.age}t</span>`}</div>`;
   }
-  if (d.kind === 'bld') return `<div class="slot" data-s="${s}"><img class="bld" src="${bimg(d.img)}" alt=""></div>`;
-  // a Pokémon's slot stays clear: only the walking Pokémon itself is shown on the island
-  return `<div class="slot mon" data-s="${s}"></div>`;
+  if (o.id === 'fence') return `<div class="slot fence${g}" data-s="${s}"><img class="rail top" src="${bimg('fence')}" alt=""><img class="rail bot" src="${bimg('fence')}" alt=""><span class="pen">${o.mons.length}/2</span></div>`;
+  return `<div class="slot${g}" data-s="${s}"><img class="bld" src="${bimg(d.img)}" alt=""></div>`;
 }
 
 let hoverTile = null;
@@ -580,7 +626,7 @@ function showInfo(i) {
       <div class="row"><span>Islands</span><b>${owned().length}</b></div>
       <div class="row"><span>Next land costs</span><b>${landCost()}</b></div>
       <div class="row"><span>Total earned</span><b>${fmt(S.earned)}</b></div>
-      <div class="why">Click a card, then a glowing island. Each island has 12 slots. Click "+ LAND" to grow. Click an island to see and release what's on it.</div>`;
+      <div class="why">Click a card, then a glowing square. Pokémon go in Fences (2 each). Click "+ LAND" to grow. Click an island to see and release what's on it.</div>`;
     return;
   }
   const t = T(i), p = prodTile(i);
@@ -588,10 +634,9 @@ function showInfo(i) {
   const makes = [...Object.entries(p.items).map(([k, n]) => `${n}${svgIco(k, 14)}`), p.coins ? `${p.coins}${svgIco('coin', 14)}` : ''].filter(Boolean).join(' ') || 'nothing yet';
   let h = `<div class="row"><span>Makes per turn</span><b>${makes}</b></div>`;
   const empty = t.slots.filter(o => !o).length;
-  h += `<div class="row"><span>Slots used</span><b>${SLOTS - empty} / ${SLOTS}</b></div>`;
-  t.slots.forEach((o, s) => {
-    if (!o) return;
-    const d = CARDS[o.id], ps = prodOf(i, s);
+  h += `<div class="row"><span>Squares used</span><b>${SLOTS - empty} / ${SLOTS}</b></div>`;
+  occs(i).forEach(o => {
+    const d = CARDS[o.id], ps = prodOf(i, o);
     const mk = [...Object.entries(ps.items).map(([k, n]) => `${n}${svgIco(k, 12)}`), ps.coins ? `${ps.coins}${svgIco('coin', 12)}` : ''].filter(Boolean).join(' ');
     let img, name, extra = '';
     if (d.kind === 'mon') {
@@ -600,7 +645,7 @@ function showInfo(i) {
       extra = `${'❤'.repeat(Math.max(0, o.hearts))} · ${nxt !== undefined ? `XP ${o.xp}/${nxt} → ${d.line[o.stage + 1][1]}` : 'fully evolved'}`;
     } else if (d.kind === 'crop') { img = cropImg(o.id, 3); name = d.name; extra = ripe(o) ? 'ripe' : `ripe in ${growNeed(o) - o.age} turn(s)`; }
     else { img = bimg(d.img); name = d.name; }
-    h += `<div class="slotrow"><img src="${img}" alt=""><div class="d"><b>${name}</b> ${mk ? '→ ' + mk : ''}<br><span style="color:#7a6c50">${extra}</span>${ps.why.length ? `<br><span style="color:#7a6c50;font-size:11px">${ps.why.join(' · ')}</span>` : ''}</div>${S.lock === i ? `<button data-rel="${i},${s}" title="Remove">✕</button>` : ''}</div>`;
+    h += `<div class="slotrow"><img src="${img}" alt=""><div class="d"><b>${name}</b> ${mk ? '→ ' + mk : ''}<br><span style="color:#7a6c50">${extra}</span>${ps.why.length ? `<br><span style="color:#7a6c50;font-size:11px">${ps.why.join(' · ')}</span>` : ''}</div>${S.lock === i ? `<button data-rel="${i},${o.uid}" title="Remove">✕</button>` : ''}</div>`;
   });
   if (S.lock !== i) h += `<div class="why">Click the island to pin this panel and remove things.</div>`;
   box.innerHTML = h;
@@ -633,39 +678,23 @@ function setSheet(w, dex) {
   if (!wd) { w.el.classList.add('icon'); w.el.style.backgroundImage = `url(${icon(dex)})`; w.data = null; return; }
   w.el.classList.remove('icon'); w.data = wd;
 }
-/* Walking rules: a Pokémon roams its whole island, square by square on the 4 x 3 grid.
-   It may walk through EMPTY squares and Pokémon squares, never over a crop or a building,
-   and it books the square it steps into, so two Pokémon never overlap either. */
-const walkable = (i, c) => { const o = T(i).slots[c]; return !o || kindOf(o) === 'mon'; };
-const gridNbs = c => { const {cols, rows} = GRID, r = Math.floor(c / cols), k = c % cols, out = [];
-  if (k > 0) out.push(c - 1); if (k < cols - 1) out.push(c + 1); if (r > 0) out.push(c - cols); if (r < rows - 1) out.push(c + cols); return out; };
-function booked(i, except) {
-  const b = new Set();
-  for (const [, w] of walkers) if (w !== except && w.tile === i && w.cell !== undefined) { b.add(w.cell); if (w.next !== null && w.next !== undefined) b.add(w.next); }
-  return b;
-}
+/* Walking rules: each Pokémon lives in a Fence (2 per fence). It walks around inside its half of the pen,
+   so it never covers a crop, a building or the other Pokémon. */
 function syncWalkers() {
   const live = new Set();
-  for (const i of owned()) T(i).slots.forEach((o, si) => {
-    if (!o || kindOf(o) !== 'mon') return;
-    live.add(o.uid);
-    let w = walkers.get(o.uid);
-    if (!w) { w = walkerEl(stageDex(o)); setSheet(w, stageDex(o)); w.wait = Math.random() * 2; w.t = 0; w.dir = 0; w.cell = si; w.next = null; w.prog = 0; walkers.set(o.uid, w); }
-    if (w.dex !== stageDex(o)) setSheet(w, stageDex(o));
-    if (w.tile !== i) { w.cell = si; w.next = null; w.prog = 0; }
-    w.tile = i; w.o = o; w.home = si; w.water = T(i).t === 'water';
+  for (const i of owned()) T(i).slots.forEach((f, si) => {
+    if (!f || !f.mons) return;
+    f.mons.forEach((o, k) => {
+      live.add(o.uid);
+      let w = walkers.get(o.uid);
+      if (!w) { w = walkerEl(stageDex(o)); setSheet(w, stageDex(o)); w.wait = Math.random() * 2; w.t = 0; w.dir = 0; w.fx = 0.5; w.fy = 1; w.tx = 0.5; w.ty = 1; walkers.set(o.uid, w); }
+      if (w.dex !== stageDex(o)) setSheet(w, stageDex(o));
+      const r = slotRect(si), ins = (r.y1 - r.y0) * 0.24, half = (r.b - r.a) / 2;
+      w.pen = {a: r.a + half * k, b: r.a + half * (k + 1), y0: r.y0 + ins, y1: r.y1 - ins * 0.45};   // its half of the pen
+      w.tile = i; w.o = o; w.water = T(i).t === 'water';
+    });
   });
   for (const [k, w] of walkers) if (!live.has(k)) { w.el.remove(); walkers.delete(k); }
-  // something was planted or built where a Pokémon stood: send it home (its own square is always free)
-  let moved = true;
-  for (let guard = 0; moved && guard < 20; guard++) {
-    moved = false;
-    for (const [, w] of walkers) {
-      const bad = !walkable(w.tile, w.cell) || (w.next !== null && !walkable(w.tile, w.next));
-      const clash = [...walkers.values()].some(v => v !== w && v.tile === w.tile && (v.cell === w.cell || (v.next !== null && v.next === w.cell)) && v.cell === v.home);
-      if (bad || (clash && w.cell !== w.home)) { w.cell = w.home; w.next = null; w.prog = 0; moved = true; }
-    }
-  }
 }
 let lastT = performance.now();
 function tick(now) {
@@ -673,32 +702,24 @@ function tick(now) {
   if (S) {
     const Tp = view.T;
     for (const [, w] of walkers) {
-      if (!T(w.tile) || !T(w.tile).owned || w.cell === undefined) continue;
-      let moving = w.next !== null;
-      if (!moving && w.wait <= 0 && !(w.o && w.o.hungry)) {
-        // pick a free neighbouring square to walk into (empty or a Pokémon square, not booked)
-        const bk = booked(w.tile, w), opts = gridNbs(w.cell).filter(c => walkable(w.tile, c) && !bk.has(c));
-        if (opts.length) { w.next = pick(opts); w.prog = 0; moving = true; } else w.wait = rnd(0.5, 1.5);
-      }
+      if (!T(w.tile) || !T(w.tile).owned || !w.pen) continue;
+      const pn = w.pen, [x0, y0] = tileXY(w.tile);
+      const wk = w.data ? w.data.walk : {w: 40, h: 30, n: 1, rows: 1, dur: [1]}, idl = w.data && w.data.idle ? w.data.idle : wk;
+      const base = {w: Math.max(wk.w, idl.w), h: Math.max(wk.h, idl.h)};
+      const sc = Math.min(2.4, (pn.y1 - pn.y0) * Tp / base.h, (pn.b - pn.a) * Tp / base.w) * 0.98;   // fits its half of the pen
+      let moving = w.wait <= 0 && !(w.o && w.o.hungry);
+      const anim = w.data ? (moving ? wk : idl) : wk, sw = anim.w * sc, sh = anim.h * sc;
+      // feet position inside the pen, kept so the whole sprite stays in its half
+      const minX = pn.a + sw / 2 / Tp, maxX = pn.b - sw / 2 / Tp, minY = Math.min(pn.y1, pn.y0 + sh / Tp);
       if (moving) {
-        w.prog += 0.9 * dt;
-        if (w.prog >= 1) { w.cell = w.next; w.next = null; w.prog = 0; moving = false; w.wait = rnd(0.6, 2.8); }
+        const dx = w.tx - w.fx, dy = w.ty - w.fy, dist = Math.hypot(dx, dy), sp = 0.05 * dt;
+        if (dist < sp) { w.fx = w.tx; w.fy = w.ty; w.wait = rnd(0.8, 3); w.tx = rnd(0, 1); w.ty = rnd(0, 1); moving = false; }
+        else { w.fx += dx / dist * sp; w.fy += dy / dist * sp; w.dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 2 : 6) : (dy > 0 ? 0 : 4); }
       } else { w.wait -= dt; if (w.wait < 0.5) w.dir = 0; }
       w.t += dt;
-      const [x0, y0] = tileXY(w.tile);
-      const anim = w.data ? (moving ? w.data.walk : (w.data.idle || w.data.walk)) : {w: 40, h: 30, n: 1, rows: 1, dur: [1]};
-      // sized to fit inside one square, so it only ever covers the square(s) it booked
-      const r0 = slotRect(w.cell), wk = w.data ? w.data.walk : anim, id = w.data && w.data.idle ? w.data.idle : wk;
-      const base = {w: Math.max(wk.w, id.w), h: Math.max(wk.h, id.h)};   // biggest frame, so walking or standing it fits
-      const cw = (r0.b - r0.a) * Tp, ch = (r0.y1 - r0.y0) * Tp;
-      const sc = Math.min(2.4, ch / base.h, cw / base.w) * 0.98;
-      const sw = anim.w * sc, sh = anim.h * sc;
-      let fx = (r0.a + r0.b) / 2, fy = r0.y1;
-      if (moving) {
-        const r1 = slotRect(w.next), tx = (r1.a + r1.b) / 2, ty = r1.y1;
-        w.dir = tx > fx ? 2 : tx < fx ? 6 : ty > fy ? 0 : 4;
-        fx += (tx - fx) * w.prog; fy += (ty - fy) * w.prog;
-      }
+      // fx/fy are 0..1 inside the allowed box
+      w.fx = Math.min(1, Math.max(0, w.fx)); w.fy = Math.min(1, Math.max(0, w.fy));
+      const fx = minX + (Math.max(minX, maxX) - minX) * w.fx, fy = minY + (pn.y1 - minY) * w.fy;
       const left = x0 + fx * Tp - sw / 2, topPx = y0 + fy * Tp - sh, py = topPx + sh;
       w.el.style.width = sw + 'px'; w.el.style.height = sh + 'px';
       w.el.style.left = left + 'px'; w.el.style.top = topPx + 'px';
@@ -796,7 +817,7 @@ document.addEventListener('mousemove', e => {
   if (b) { tip.textContent = b.dataset.tip; tip.classList.remove('hidden'); tip.style.left = (e.clientX + 12) + 'px'; tip.style.top = (e.clientY + 14) + 'px'; }
 });
 document.addEventListener('mouseout', e => { if (e.target.closest && e.target.closest('[data-tip]')) $('tip').classList.add('hidden'); });
-$('tiles').addEventListener('click', e => { const t = e.target.closest('.tile'); if (t) clickTile(+t.dataset.i); });
+$('tiles').addEventListener('click', e => { const t = e.target.closest('.tile'); if (!t) return; const sl = e.target.closest('.slot'); clickTile(+t.dataset.i, sl ? +sl.dataset.s : null); });
 $('boardWrap').addEventListener('click', e => { if (!e.target.closest('.tile') && S.lock !== null) { S.lock = null; render(); } });
 $('tiles').addEventListener('mouseover', e => { const t = e.target.closest('.tile'); if (t && hoverTile !== +t.dataset.i) { hoverTile = +t.dataset.i; if (S.lock === null) showInfo(hoverTile); } });
 $('tiles').addEventListener('mouseleave', () => { hoverTile = null; if (S.lock === null) showInfo(null); });

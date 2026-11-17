@@ -6,7 +6,9 @@ How it plays
   You start with ONE island tile. Every island has 12 slots (4 x 3). Put crops (Leek Patch, Apple Tree, Oran Tree, Razz Bush,
   Mushroom Patch, Flower Bed), Pokemon and buildings in the slots. Things on the same island help each other.
   Buy more islands next to yours (you choose grass, water or rock). Pay the loan every 5 turns.
-  The Pokemon walk around on their island; wild Pokemon wander by once the ranch grows.
+  Tap the exact square to plant or build. Pokemon must go in a Fence (2 per fence) and walk inside it.
+  Workshops: Furnace (Hard Stones -> Metal Coats), Bakery (Leeks + Oran Berry -> Old Gateau), Well, Lab,
+  Day Care, Bank. Water islands: Lotus Root, Clam Bed, Ferry Port, Lotad, Corsola, Slowpoke, Lapras.
 
 Files
   index.html   page layout
