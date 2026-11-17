@@ -35,6 +35,7 @@ html,body{margin:0;height:100%;background:var(--bg);color:#fff;font-family:syste
 #modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(5,15,25,.78);z-index:5;padding:12px}
 #modal.show{display:flex}
 .box{background:#102a43;border:3px solid #f6dc94;border-radius:16px;padding:16px;width:min(420px,100%);max-height:92dvh;overflow:auto;display:flex;flex-direction:column;gap:8px;text-align:center}
+.box p{text-align:left;line-height:1.35;font-size:15px}
 .box h2{margin:0;color:#ffd34d}.box p{margin:0;color:#bfe6ff}
 .box button,.box input{font:700 16px system-ui;background:#1f4b73;color:#fff;border:2px solid #7fd1ff;border-radius:10px;padding:10px;width:100%}
 .box input{background:#0b1d2e;font-weight:500}
@@ -43,6 +44,7 @@ html,body{margin:0;height:100%;background:var(--bg);color:#fff;font-family:syste
 @media (orientation:landscape) and (max-height:560px){
   #app{grid-template-columns:1fr 250px;grid-template-rows:auto 1fr;grid-template-areas:"stage top" "stage side"}
   #side{display:flex;flex-direction:column;min-height:0;border-top:0;border-left:2px solid #f6dc94}
+  #top{flex-wrap:wrap;gap:5px;padding:5px 6px}#top .cash{flex:1 1 100%;font-size:17px}#top button{padding:5px 9px;font-size:14px;flex:1}
   #shop{flex-wrap:wrap;overflow-y:auto;overflow-x:hidden;align-content:flex-start;flex:1}
   .item{flex:0 0 72px}
 }
@@ -50,9 +52,9 @@ html,body{margin:0;height:100%;background:var(--bg);color:#fff;font-family:syste
 </head>
 <body>
 <div id="app">
-  <div id="top"><div class="cash" id="cash">150</div><button id="pauseBtn">II</button><button id="menuBtn">MENU</button></div>
+  <div id="top"><div class="cash" id="cash">150</div><button id="helpBtn" title="How to play">?</button><button id="fsBtn" title="Fullscreen">&#x26F6;</button><button id="pauseBtn">II</button><button id="menuBtn">MENU</button></div>
   <div id="stage"><div id="tank"><div id="bg"></div><canvas id="c" width="900" height="600"></canvas></div></div>
-  <div id="side"><div id="tip">Tip: turn your phone sideways for a bigger tank. Tap the water to drop food ($5). Tap coins to collect them. Tap raiders to hit them.</div><div id="shop"></div></div>
+  <div id="side"><div id="tip">TAP the water = food ($5)  |  TAP coins to collect  |  TAP raiders to fight  |  ? = help</div><div id="shop"></div></div>
 </div>
 <div id="modal"></div>
 <script src="data.js"></script>

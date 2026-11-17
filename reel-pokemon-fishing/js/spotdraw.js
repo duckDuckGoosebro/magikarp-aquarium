@@ -142,7 +142,7 @@ function drawUnderView(surf, img, W, H, full) {
       const moving = f.state !== 'wander' || f.pause <= 0;
       drawMonPx(f.id, q[0], q[1], h, f.fz < 0, f.t, { shiny: f.shiny, alpha: a, rot, speed: moving ? (f.state === 'chase' || hooked ? 1.6 : 0.8) : 0.3 });
       if (f.state === 'bite') F.biteMark = { surf: full ? 'world' : 'pip', x: q[0], y: q[1] - h * 0.6 };
-      if (hooked) { ctx.strokeStyle = F.fight && F.fight.tension > 85 ? '#ffb0b0' : 'rgba(240,248,255,.85)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(Math.round(q[0] + h * 0.3), Math.round(q[1])); ctx.lineTo(Math.round(W * 0.35), -2); ctx.stroke(); }
+      if (hooked) { ctx.strokeStyle = F.fight && F.fight.tension > 85 ? '#ffb0b0' : 'rgba(240,248,255,.85)'; ctx.lineWidth = 1; const mp = mouthOff(f), qm = PU(c, info, W, f.x, f.y + mp.dy, f.z + (f.fz || 1) * mp.dz) || q; ctx.beginPath(); ctx.moveTo(Math.round(qm[0]), Math.round(qm[1])); ctx.lineTo(Math.round(W * 0.35), -2); ctx.stroke(); }
     } else if (it.k === 'lure') {
       const q = PU(c, info, W, l.x, l.y, l.z); if (!q) continue;
       ctx.strokeStyle = 'rgba(240,248,255,.85)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(Math.round(q[0]), Math.round(q[1])); ctx.lineTo(Math.round(q[0] - W * 0.25), -2); ctx.stroke();

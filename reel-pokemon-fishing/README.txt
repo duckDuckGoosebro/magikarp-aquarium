@@ -40,3 +40,8 @@ FOLDERS
   tools/     build_assets.py - re-run after changing the fish table / pools
 
 Sprites: PMDCollab SpriteCollab, CC BY-NC 4.0 (credit the artists, non-commercial use).
+
+HOOK FIX
+  The lure/hook now meets the fish's MOUTH, not its middle or tail: tools/add_mouths.py stores a mouth point ("mo") for every species in data.js
+  (run it again after tools/build_assets.py), the fish swims so its mouth reaches the lure, and the line ends at the mouth while you fight it.
+  A copy of the game from before this fix is in ../REEL POKEMON FISHING (no hook fix). Magikarp's sprite strip was also flipped right-side-up.

@@ -108,6 +108,13 @@ function spawnFish(first) {
   if (f.S.cond && !first) { say('A legendary presence stirs the water...', '#ffe36e', 4); Snd.sfx('legend'); }
 }
 
+// ---- MOUTH: where a fish's mouth is, in world units, relative to the centre of its sprite (data.js "mo" = mouth pixel, "bb" = art box).
+// The lure and hook meet the fish's MOUTH (not its middle or tail), and the fishing line ends at the mouth when it is hooked.
+function mouthOff(f) {
+  const S = f.S || SPECIES[f.id], mo = S && S.mo; if (!mo) return { dz: 0, dy: 0 };
+  const bodyH = Math.max(0.16, f.size * 0.85), sc = bodyH / Math.max(8, S.bb[3] - S.bb[1]);
+  return { dz: (mo[0] - (S.bb[0] + S.bb[2]) / 2) * sc, dy: (mo[1] - (S.bb[1] + S.bb[3]) / 2) * sc };
+}
 function updateFish(f, dt) {
   const spot = F.spot, l = F.lure, lure = LURE_BY[SAVE.lure];
   f.t += dt; f.cool = Math.max(0, f.cool - dt);
@@ -139,18 +146,19 @@ function updateFish(f, dt) {
         const wxB = F.wx === 'rain' ? 1.3 : F.wx === 'cloud' ? 1.1 : 1;
         const mv = (l.reeling ? 1 : 0.6) + l.twitch * 1.3;
         const p = lure.app * habm * zone * Math.max(0.2, sizeFit) * rar * nightB * wxB * mv * f.mood * (1 - d / sight * 0.5);
-        if (Math.random() < p * dt * 0.95) { f.state = 'chase'; f.st = 0; }
+        if (Math.random() < p * dt * 0.95) { f.state = 'chase'; f.st = 0; f.chaseFz = l.z >= f.z ? 1 : -1; }
       }
     }
   } else if (f.state === 'chase') {
     if (!inLure) { f.state = 'wander'; f.cool = 3; return; }
     f.st += dt;
-    const d = Math.hypot(l.x + 0.5 - f.x, l.y - f.y, l.z - f.z);
-    if (d < 1.2) { f.state = 'nibble'; f.tugs = rint(1, 3); f.tugT = rnd(0.45, 0.8); f.st = 0; }
-    else { steer(l.x + 0.5, l.y, l.z, (3.4 + l.spd * 0.6) * f.speed * (1 + 0.2 * Math.sqrt(f.size))); if (f.st > 8 || d > 18) { f.state = 'wander'; f.cool = 4; } }
+    const mo = mouthOff(f), fz = f.chaseFz || f.fz || 1, tz = l.z - fz * mo.dz, ty = l.y - mo.dy;     // swim so the MOUTH reaches the lure
+    const d = Math.hypot(l.x + 0.15 - f.x, ty - f.y, tz - f.z);
+    if (d < 1.0) { f.state = 'nibble'; f.fz = fz; f.tugs = rint(1, 3); f.tugT = rnd(0.45, 0.8); f.st = 0; }
+    else { steer(l.x + 0.15, ty, tz, (3.4 + l.spd * 0.6) * f.speed * (1 + 0.2 * Math.sqrt(f.size))); f.fz = fz; if (f.st > 8 || d > 18) { f.state = 'wander'; f.cool = 4; } }
   } else if (f.state === 'nibble' || f.state === 'bite') {
     if (!inLure) { f.state = 'wander'; f.cool = 3; return; }
-    f.x = l.x + 0.5; f.y = l.y; f.z = l.z + Math.sin(f.t * 9) * 0.06;
+    { const mo = mouthOff(f); f.x = l.x + 0.15; f.y = l.y - mo.dy; f.z = l.z - (f.fz || 1) * mo.dz + Math.sin(f.t * 9) * 0.04; }   // mouth on the hook
     if (f.state === 'nibble') {
       f.tugT -= dt;
       if (l.spd > 3.6 && Math.random() < dt * 1.2) { f.state = 'flee'; f.cool = 6; newTarget(7); say('The lure moved too fast!', '#ffd0a0'); Snd.sfx('flee'); return; }

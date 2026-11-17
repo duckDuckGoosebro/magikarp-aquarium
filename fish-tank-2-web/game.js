@@ -1,6 +1,7 @@
 "use strict";
 // FISH TANK (web / iPhone). Port of FISH TANK 2 (fishtank2.py): tables come from data.js (built by tools/build_assets.py).
-const W = 900, H = 600, SAND_Y = H - 60, TOP = 70, BOT = SAND_Y - 30, MAX_FISH = 22, FOOD_COST = 5;
+let W = 900, H = 600, SAND_Y = H - 60, TOP = 70, BOT = SAND_Y - 30;   // the tank size follows the screen (see applyLayout)
+const MAX_FISH = 22, FOOD_COST = 5;
 const D = DATA, SP = D.sprites;
 const set = (a) => new Set(a);
 const PETS = set(D.pets), GROUND = set(D.ground), STILL = set(D.still), EATERS = set(D.eaters), LEGENDS = set(D.legends), GRAB = set(D.grabbers);
@@ -54,22 +55,72 @@ function getStrip(sp, anim, shiny, tint) {
   if (!strips[key]) strips[key] = tintCanvas(o.img, tint);
   return strips[key];
 }
-function pickAnim(sp, anim) { const m = SP[sp]; for (const a of [anim, "Walk", "Idle"]) if (m && m[a]) return a; return null; }
+function pickAnim(sp, anim) { const m = SP[sp]; if (sp === "magikarp" && m && m.Idle) return "Idle";   // Magikarp only ever uses the steady Idle frames (yellow fan up)
+  for (const a of [anim, "Walk", "Idle"]) if (m && m[a]) return a; return null; }
 const fxSheets = {};
 function fxImg(name) { return loadImg("fx/" + name + ".png"); }
 
-// ------------------------------------------------------------------------------------------------ audio (tiny synth blips)
-let actx = null;
+// ------------------------------------------------------------------------------------------------ audio
+// Real sound effects (sounds/*.wav, the same ones as the PC game) played through the Web Audio API.
+// Phones only allow sound after a touch, so the first tap on the screen "unlocks" it (audioUnlock). On iPhone a silent <audio>
+// element is also started so the sound is not muted by the ring/silent switch.
+const SOUND_FILES = ["alarm", "buy", "coin", "evolve", "plop", "slam", "splash", "win", "bubble1", "bubble2", "bubble3", "bubble4", "bubble5", "ambient"];
+const AUD = { ctx: null, buf: {}, loading: false, kick: false, amb: null, last: {} };
+function silentWavUrl() {
+  const n = 800, d = new Uint8Array(44 + n), v = new DataView(d.buffer), w = (o, t) => { for (let i = 0; i < t.length; i++) d[o + i] = t.charCodeAt(i); };
+  w(0, "RIFF"); v.setUint32(4, 36 + n, true); w(8, "WAVEfmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, 8000, true); v.setUint32(28, 8000, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true); w(36, "data"); v.setUint32(40, n, true);
+  for (let i = 0; i < n; i++) d[44 + i] = 128;
+  return URL.createObjectURL(new Blob([d], { type: "audio/wav" }));
+}
+function audioUnlock() {
+  try {
+    if (!AUD.ctx) { const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return; AUD.ctx = new AC(); }
+    if (AUD.ctx.state !== "running") AUD.ctx.resume();
+    if (!AUD.kick) {
+      AUD.kick = true;
+      try { const a = new Audio(silentWavUrl()); a.setAttribute("playsinline", ""); a.loop = true; a.volume = 0.02; const p = a.play(); if (p && p.catch) p.catch(() => {}); AUD.silent = a; } catch (e) { /* ok */ }
+      const bf = AUD.ctx.createBuffer(1, 1, 22050), src = AUD.ctx.createBufferSource(); src.buffer = bf; src.connect(AUD.ctx.destination); src.start(0);
+    }
+    if (!AUD.loading) {
+      AUD.loading = true;
+      for (const n of SOUND_FILES) {
+        fetch("sounds/" + n + ".wav").then((r) => r.arrayBuffer())
+          .then((ab) => new Promise((ok, no) => { const p = AUD.ctx.decodeAudioData(ab, ok, no); if (p && p.then) p.then(ok, no); }))
+          .then((bf) => { AUD.buf[n] = bf; if (n === "ambient") applyAudioSettings(); }).catch(() => { /* that sound stays a beep */ });
+      }
+    }
+  } catch (e) { /* no audio on this device */ }
+}
+["pointerdown", "touchstart", "touchend", "click", "keydown"].forEach((ev) => document.addEventListener(ev, audioUnlock, { capture: true, passive: true }));
+document.addEventListener("visibilitychange", () => { if (!document.hidden && AUD.ctx && AUD.ctx.state !== "running") AUD.ctx.resume(); });
 function beep(freq, dur, type, vol) {
   try {
-    if (!G.settings.sound) return;
-    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
-    const o = actx.createOscillator(), g = actx.createGain(); o.type = type || "sine"; o.frequency.value = freq;
-    g.gain.value = vol || 0.05; g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + dur);
-    o.connect(g); g.connect(actx.destination); o.start(); o.stop(actx.currentTime + dur);
+    if (!G.settings.sound || !AUD.ctx || AUD.ctx.state !== "running") return;
+    const o = AUD.ctx.createOscillator(), g = AUD.ctx.createGain(); o.type = type || "sine"; o.frequency.value = freq;
+    g.gain.value = vol || 0.05; g.gain.exponentialRampToValueAtTime(0.0001, AUD.ctx.currentTime + dur);
+    o.connect(g); g.connect(AUD.ctx.destination); o.start(); o.stop(AUD.ctx.currentTime + dur);
   } catch (e) { /* no audio */ }
 }
-const SND = { coin: () => beep(880, 0.12, "triangle"), buy: () => beep(520, 0.15, "square", 0.03), slam: () => beep(90, 0.35, "sawtooth", 0.08), alarm: () => beep(300, 0.3, "square", 0.04), evolve: () => beep(1200, 0.3, "sine") };
+function playSound(name, vol, gap, fallback) {
+  if (!G.settings.sound || !AUD.ctx || AUD.ctx.state !== "running") return;
+  const now = performance.now() / 1000; if (gap && AUD.last[name] && now - AUD.last[name] < gap) return; AUD.last[name] = now;
+  const bf = AUD.buf[name]; if (!bf) { if (fallback) fallback(); return; }
+  try { const src = AUD.ctx.createBufferSource(), g = AUD.ctx.createGain(); src.buffer = bf; g.gain.value = vol == null ? 0.6 : vol; src.connect(g); g.connect(AUD.ctx.destination); src.start(0); } catch (e) { /* ok */ }
+}
+function applyAudioSettings() {
+  try {
+    const want = G.settings.sound && G.settings.ambience !== false && AUD.ctx && AUD.buf.ambient;
+    if (want && !AUD.amb) { const src = AUD.ctx.createBufferSource(), g = AUD.ctx.createGain(); src.buffer = AUD.buf.ambient; src.loop = true; g.gain.value = 0.22; src.connect(g); g.connect(AUD.ctx.destination); src.start(0); AUD.amb = src; }
+    else if (!want && AUD.amb) { AUD.amb.stop(); AUD.amb = null; }
+  } catch (e) { /* ok */ }
+}
+const SND = {
+  coin: () => playSound("coin", 0.55, 0.04, () => beep(880, 0.12, "triangle")), buy: () => playSound("buy", 0.6, 0, () => beep(520, 0.15, "square", 0.03)),
+  slam: () => playSound("slam", 0.8, 0.15, () => beep(90, 0.35, "sawtooth", 0.08)), alarm: () => playSound("alarm", 0.6, 1, () => beep(300, 0.3, "square", 0.04)),
+  evolve: () => playSound("evolve", 0.7, 0.3, () => beep(1200, 0.3, "sine")), plop: () => playSound("plop", 0.5, 0.05), win: () => playSound("win", 0.7, 1),
+  splash: () => playSound("splash", 0.5, 0.2), bubble: () => playSound("bubble" + (1 + Math.floor(Math.random() * 5)), 0.3, 0.6),
+};
 
 // ------------------------------------------------------------------------------------------------ entities
 let UID = 1;
@@ -102,7 +153,7 @@ function tintOf(e) {
 
 // ------------------------------------------------------------------------------------------------ game state
 const G = {
-  level: 1, best: 1, settings: { fx: true, shiny: true, sound: true, boss: true, hunger: true, speed: 1 },
+  level: 1, best: 1, settings: { fx: true, shiny: true, sound: true, ambience: true, boss: true, hunger: true, speed: 1 },
   prog: { grown: 0, raiders: 0, evolved: 0, coins: 0, births: 0, shinies: 0, birds: 0, eggs: 0, kyogre: 0, seen: [], unlocked: [], beaten: [] },
   dbg: { unlock: false, god: false, cash: false, shiny: false },
   state: "play", paused: false, S: 1,
@@ -269,7 +320,7 @@ function updateFish(f, dt) {
   if (k !== "boss") f.age += dt;
   if (GROUND.has(f.sp) && k !== "boss" && f.phase === "swim" && !f.held) f.y = SAND_Y - 16;
   if (f.shiny) { f.spark -= dt; if (f.spark <= 0) { f.spark = rnd(2.5, 4.5); addFx("love", [6], f.x + rnd(-20, 20), f.y + rnd(-20, 20), 0.5, 42); } }
-  let anim = f.mode === "swim" ? "Walk" : "Idle";
+  let anim = f.mode === "swim" && !STEADY.has(f.sp) ? "Walk" : "Idle";   // fish whose Walk sheet is a flop/hop use the steady Idle frames to swim
   const tm = f.shiny ? [1, 1.3, 1.7, 2.2][f.tier] : 1;
   curTier = f.shiny ? f.tier : 0;
   if (k === "boss") updateBoss(f, dt);
@@ -549,7 +600,7 @@ function update(dt) {
   if (G.dbg.cash) T.cash = Math.max(T.cash, 99999);
   T.t += dt; T.rain = Math.max(0, T.rain - dt); if (T.msg_t > 0) T.msg_t -= dt;
   if (!T.boss && G.settings.boss) { T.boss_clock -= dt; if (T.boss_clock <= 0) spawnBoss(); }
-  if (G.settings.sound !== false && R() < dt * 0.9 && false) beep(200, 0.05);
+  if (R() < dt * 0.35) SND.bubble();
   if (R() < dt * 3) T.bubbles.push({ x: pick([0.03, 0.085, 0.14, 0.33, 0.47, 0.6, 0.885, 0.94]) * W + rnd(-14, 14), y: SAND_Y, r: rnd(2, 6), sp: rnd(30, 70) });
   for (const b of T.bubbles) { b.y -= b.sp * dt; b.x += Math.sin(b.y / 14) * 12 * dt; }
   T.bubbles = T.bubbles.filter((b) => b.y > 0);
@@ -571,7 +622,7 @@ function update(dt) {
 }
 function win() {
   if (G.state !== "play") return;
-  G.state = "won"; G.best = Math.max(G.best, G.level + 1); const got = grantUnlocks(); save();
+  G.state = "won"; G.best = Math.max(G.best, G.level + 1); const got = grantUnlocks(); save(); SND.win();
   const lines = ["All 3 egg pieces collected!"].concat(got.length ? ["Caught: " + got.map((k) => D.shop[k].name).join(", ")] : []);
   modal("TANK " + stageLabel(G.level) + " COMPLETE", lines, [["Next tank", () => { G.level++; save(); newTank(); }]]);
 }
@@ -586,7 +637,7 @@ function onTap(x, y) {
   const b = T.boss; if (b && !b.held && Math.hypot(b.x - x, b.y - y) < 52 * Math.max(0.8, scaleOf(b) * 0.9)) { hitBoss(1 + T.weapL); return; }
   if (b && b.held && Math.hypot(b.x - x, b.y - y) < 52) { hitBoss(1 + T.weapL); return; }
   for (const f of T.fish) if (canEvolve(f) && Math.hypot(f.x - x, f.y - y) < 40) { const opts = evoOptions(f); if (opts.length > 1) modal("Evolve " + cap(f.sp), [], opts.map((o, i) => [cap(o[0]) + " ($" + o[2] + ")", () => { closeModal(); evolve(f, i); }]).concat([["Cancel", closeModal]])); else evolve(f, 0); return; }
-  if (T.cash >= FOOD_COST && T.pellets.length < 1 + T.foodL) { T.cash -= FOOD_COST; T.pellets.push({ x, y: Math.max(TOP - 40, y), vy: 0, life: 7 }); refreshShop(); }
+  if (T.cash >= FOOD_COST && T.pellets.length < 1 + T.foodL) { T.cash -= FOOD_COST; T.pellets.push({ x, y: Math.max(TOP - 40, y), vy: 0, life: 7 }); SND.plop(); refreshShop(); }
 }
 
 // ------------------------------------------------------------------------------------------------ shop
@@ -655,12 +706,24 @@ function refreshShop(force) {
 
 // ------------------------------------------------------------------------------------------------ drawing
 const cv = document.getElementById("c"), ctx = cv.getContext("2d");
+// Magikarp & co: their Walk sheet is a flopping hop (frames tilt head-up / upside-down). They swim with the steady Idle frames instead.
+const STEADY = new Set(["magikarp", "goldeen", "feebas", "finneon"]);
+// Body pitch: a swimming fish points its nose the way it is moving (up/down) and wiggles a little, like a real fish.
+function tiltOf(f, t) {
+  const dx = f.x - (f.lx == null ? f.x : f.lx), dy = f.y - (f.ly == null ? f.y : f.ly); f.lx = f.x; f.ly = f.y;
+  if (f.kind === "boss" || GROUND.has(f.sp) || STILL.has(f.sp) || f.isDead || f.mode !== "swim") { f.tilt = (f.tilt || 0) * 0.85; return f.tilt; }
+  const sp = Math.hypot(dx, dy); let target = 0;
+  if (sp > 0.3) target = Math.max(-0.5, Math.min(0.5, Math.atan2(dy, Math.abs(dx) + 0.6)));
+  f.tilt = (f.tilt || 0) + (target - (f.tilt || 0)) * 0.12;
+  return f.tilt + (sp > 0.3 ? Math.sin(t * 9 + f.x * 0.05) * 0.05 : 0);
+}
 function drawFish(f, t) {
   const an = f.anim || pickAnim(f.sp, "Idle"); if (!an) return;
   const m = SP[f.sp][an]; const tint = f.isDead ? "dead" : (f.kind === "boss" && f.variant === "octillery" && !f.vis ? null : tintOf(f));
   const s = getStrip(f.sp, an, f.shiny && !f.tier, tint); if (!s) return;
   const sc = scaleOf(f), sw = m.fw * sc, sh = m.fh * sc, fi = f.frame % m.n;
   ctx.save(); ctx.translate(f.x + (f.shake > 0 ? rnd(-3, 3) : 0), f.y + Math.sin(t * 2 + f.x / 50) * 2);
+  { const tl = tiltOf(f, t); if (tl) ctx.rotate(f.right ? tl : -tl); }
   if (!f.right) ctx.scale(-1, 1); if (f.isDead) ctx.scale(1, -1);
   if (f.kind === "boss" && f.variant === "octillery" && !f.vis) ctx.globalAlpha = 0.35;
   ctx.drawImage(s, fi * m.fw, 0, m.fw, m.fh, -sw / 2, -sh / 2, sw, sh);
@@ -719,6 +782,22 @@ function modal(title, lines, buttons, extra) {
   for (const [t, fn] of buttons || []) { const b = document.createElement("button"); b.textContent = t; b.onclick = fn; box.appendChild(b); }
   m.appendChild(box); m.classList.add("show");
 }
+function openHelp(after) {
+  const lines = [
+    "GOAL: collect all 3 egg pieces (the egg button in the shop at the bottom) to finish each tank.",
+    "1) TAP THE WATER to drop food ($5). Hungry fish (they show a '!') swim over and eat it. Fed babies grow up.",
+    "2) Grown-up fish drop COINS. TAP each coin to collect it before it disappears. That money is your score.",
+    "3) SPEND money in the shop bar: more fish, bigger food, upgrades, and the egg pieces. Swipe the bar to see everything.",
+    "4) When an angry raider appears, TAP IT again and again to beat it before it eats your fish.",
+    "5) A fish that shows 'evolve' can be tapped to evolve it for money.",
+    "Fish that stay hungry too long die, so keep dropping food (or buy the Auto Feeder). II pauses, MENU has settings, ? shows this help.",
+  ];
+  modal("HOW TO PLAY", lines, [[after ? "Got it - let's play!" : "Back to the game", () => { try { localStorage.setItem("fishtank_help", "1"); } catch (e) { /* ok */ } G.paused = false; G.state = "play"; closeModal(); }]]);
+}
+function firstRun() {
+  let seen = false; try { seen = !!localStorage.getItem("fishtank_help"); } catch (e) { /* ok */ }
+  if (!seen) { G.prevState = "play"; G.paused = true; G.state = "menu"; openHelp(true); } else openMenu();
+}
 function openMenu() {
   if (G.state === "menu") return;
   if (G.state === "play") { G.prevState = "play"; G.paused = true; G.state = "menu"; }
@@ -726,7 +805,7 @@ function openMenu() {
   modal("FISH TANK", ["Tank " + stageLabel(G.level) + "   best " + stageLabel(G.best)], [
     [fresh ? "Play" : "Resume", () => { G.paused = false; G.state = "play"; closeModal(); }],
     ["Restart this tank", () => { G.state = "play"; newTank(); }],
-    ["Select tank", openSelect], ["Wall of unlocks", openWall], ["Settings", openSettings], ["Debug", openDebug],
+    ["How to play", openHelp], ["Select tank", openSelect], ["Wall of unlocks", openWall], ["Settings", openSettings], ["Debug", openDebug],
     ["New game (erase)", () => { if (confirm("Erase all progress?")) { localStorage.removeItem("fishtank_save"); location.reload(); } }],
   ]);
 }
@@ -747,8 +826,8 @@ function openWall() {
 }
 function openSettings() {
   const g = document.createElement("div"); g.className = "list";
-  for (const [k, label] of [["fx", "Attack effects"], ["shiny", "Shiny fish"], ["sound", "Sound"], ["boss", "Raiding monsters"], ["hunger", "Hungry markers"]]) {
-    const b = document.createElement("button"); const upd = () => { b.textContent = label + ": " + (G.settings[k] ? "ON" : "OFF"); }; upd(); b.onclick = () => { G.settings[k] = !G.settings[k]; save(); upd(); }; g.appendChild(b);
+  for (const [k, label] of [["fx", "Attack effects"], ["shiny", "Shiny fish"], ["sound", "Sound effects"], ["ambience", "Water ambience"], ["boss", "Raiding monsters"], ["hunger", "Hungry markers"]]) {
+    const b = document.createElement("button"); const upd = () => { b.textContent = label + ": " + (G.settings[k] ? "ON" : "OFF"); }; upd(); b.onclick = () => { G.settings[k] = !G.settings[k]; save(); upd(); audioUnlock(); applyAudioSettings(); if (k === "sound" && G.settings.sound) SND.coin(); }; g.appendChild(b);
   }
   const sp = document.createElement("button"); sp.textContent = "Speed: " + G.settings.speed + "x"; sp.onclick = () => { const L = [0.5, 1, 1.5, 2, 3]; G.settings.speed = L[(L.indexOf(G.settings.speed) + 1) % L.length]; sp.textContent = "Speed: " + G.settings.speed + "x"; save(); }; g.appendChild(sp);
   modal("Settings", [], [["Back", () => { G.state = "play"; openMenu(); }]], g);
@@ -783,19 +862,50 @@ function frame(now) {
   if (Math.floor(now / 500) !== Math.floor((now - dt * 1000) / 500)) refreshShop();
   requestAnimationFrame(frame);
 }
+// The tank's logical size follows the screen shape: a tall tank in portrait, a wide one in landscape / fullscreen.
+// (Its area is kept near the original 900x600 so fish stay readable, a bit smaller on a phone so they stay big enough to tap.)
+function computeLayout() {
+  const r = document.getElementById("stage").getBoundingClientRect();
+  const a = Math.max(0.55, Math.min(2.4, r.width / Math.max(1, r.height)));
+  const area = Math.max(240000, Math.min(560000, r.width * r.height * 1.3));
+  return [Math.round(Math.sqrt(area * a)), Math.round(Math.sqrt(area / a))];
+}
+function applyLayout(force) {
+  const [nw, nh] = computeLayout();
+  if (!force && Math.abs(nw - W) / W < 0.04 && Math.abs(nh - H) / H < 0.04) return;
+  const ow = W, oh = H; W = nw; H = nh; SAND_Y = H - 60; TOP = 70; BOT = SAND_Y - 30; cv.width = W; cv.height = H;
+  if (T) {
+    const rx = W / ow, ry = H / oh;
+    for (const f of T.fish) { f.x *= rx; f.y *= ry; if (f.tx != null) f.tx *= rx; if (f.ty != null) f.ty *= ry; f.lx = null; f.ly = null; }
+    for (const l of [T.pellets, T.coins, T.bubbles]) for (const o of l) { o.x *= rx; o.y *= ry; }
+  }
+}
 function fit() {
+  applyLayout(false);
   const stage = document.getElementById("stage"), r = stage.getBoundingClientRect(); const k = Math.min(r.width / W, r.height / H);
   cv.style.width = W * k + "px"; cv.style.height = H * k + "px"; document.getElementById("bg").style.width = W * k + "px"; document.getElementById("bg").style.height = H * k + "px";
   const wrap = document.getElementById("tank"); wrap.style.width = W * k + "px"; wrap.style.height = H * k + "px";
 }
+function toggleFullscreen() {
+  const el = document.documentElement;
+  try {
+    if (document.fullscreenElement || document.webkitFullscreenElement) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    else if (el.requestFullscreen) el.requestFullscreen(); else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    else say("Fullscreen isn't available here. On iPhone: Share > Add to Home Screen, then open it from your home screen.");
+  } catch (e) { /* ignore */ }
+  setTimeout(fit, 250);
+}
 function pointer(e) { const r = cv.getBoundingClientRect(); const t = e.touches ? e.touches[0] : e; return [(t.clientX - r.left) / r.width * W, (t.clientY - r.top) / r.height * H]; }
 cv.addEventListener("pointerdown", (e) => { e.preventDefault(); const [x, y] = pointer(e); onTap(x, y); });
-window.addEventListener("resize", fit); window.addEventListener("orientationchange", () => setTimeout(fit, 200));
+window.addEventListener("resize", fit); window.addEventListener("orientationchange", () => { setTimeout(fit, 200); setTimeout(fit, 600); });
+document.addEventListener("fullscreenchange", () => setTimeout(fit, 150));
 document.addEventListener("visibilitychange", () => { if (document.hidden && G.state === "play") G.paused = true; });
 document.getElementById("menuBtn").onclick = openMenu;
+document.getElementById("helpBtn").onclick = () => { if (G.state === "play") { G.prevState = "play"; G.paused = true; G.state = "menu"; } openHelp(); };
+document.getElementById("fsBtn").onclick = toggleFullscreen;
 document.getElementById("pauseBtn").onclick = () => { if (G.state === "play") { G.paused = !G.paused; document.getElementById("pauseBtn").textContent = G.paused ? "▶" : "II"; } };
 document.addEventListener("gesturestart", (e) => e.preventDefault());
 document.addEventListener("touchmove", (e) => { if (!e.target.closest("#shop, .box")) e.preventDefault(); }, { passive: false });
-loadSave(); fit(); newTank(); openMenu();
+loadSave(); fit(); newTank(); firstRun();
 requestAnimationFrame(frame);
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => { /* offline cache is optional */ });
