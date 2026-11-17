@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d1a2c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="icon" href="assets/items/pb.png">
+<title>Poké Ranch Cards</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <header id="top">
+    <div class="brand">POKé RANCH <span>CARDS</span></div>
+    <div class="stat" title="Coins"><i class="ico coin"></i><b id="coins">0</b></div>
+    <div class="stat" title="Estimated income next turn">≈ <b id="est">0</b>/turn</div>
+    <div class="stat" title="Turn">Turn <b id="turn">1</b></div>
+    <div class="stat rent" title="Ranch loan payment"><span>Loan payment</span> <b id="rentAmt">0</b> <small id="rentIn"></small></div>
+    <div class="stat" title="Energy left this turn"><i class="ico bolt"></i><b id="energy">3</b>/<span id="energyMax">3</span></div>
+    <div id="badges" title="Your badges"></div>
+    <button id="mktBtn" class="btn small mobile-only">Market</button>
+    <button id="infoBtn" class="btn small mobile-only">Info</button>
+    <button id="helpBtn" class="btn small">?</button>
+  </header>
+
+  <main id="mid">
+    <aside id="market" class="panel">
+      <h3>Market</h3>
+      <div class="hint">Goods sell at the end of each turn. Tick <b>hold</b> to keep a good for a better price. Pokémon eat Oran Berries, then Apples, then Leeks, then Mushrooms.</div>
+      <div id="marketRows"></div>
+      <div id="modsBox"></div>
+    </aside>
+
+    <section id="boardWrap">
+      <div id="world"><div id="tiles"></div><div id="fx"></div></div>
+    </section>
+
+    <aside id="side" class="panel">
+      <h3 id="infoTitle">Ranch</h3>
+      <div id="info"></div>
+      <h3>Log</h3>
+      <div id="log"></div>
+    </aside>
+  </main>
+
+  <footer id="bottom">
+    <div class="pile" id="deckPile" title="Draw pile"><div class="cardback"></div><span id="deckN">0</span><label>Deck</label></div>
+    <div id="hand"></div>
+    <div class="pile" id="discPile" title="Discard pile"><div class="cardback disc"></div><span id="discN">0</span><label>Discard</label></div>
+    <button id="endBtn" class="btn big">End Turn ▶</button>
+  </footer>
+</div>
+
+<div id="sheetShade" class="hidden"></div>
+<div id="modal" class="hidden"><div id="modalBox"></div></div>
+<div id="tip" class="hidden"></div>
+
+<script src="assets/walkdata.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
