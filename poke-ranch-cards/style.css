@@ -305,3 +305,10 @@ html,body{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .slot.fence .pen{top:auto;bottom:30%;right:13%;font-size:8px;opacity:.85}
 #waterStat.dry{border-color:#e25b4b;background:#3a2020}
 .slot.crop.dry img{filter:grayscale(1) brightness(.75)} .slot.crop.dry::after{content:"no water";position:absolute;top:1px;left:2px;font:700 8px Fredoka,Nunito,sans-serif;color:#fff;background:#b23a2bcc;padding:1px 3px;border-radius:3px}
+
+/* water badge on crop cards (drinks per turn) and on the Well (makes per turn) */
+.card .wcost{position:absolute;top:2px;right:3px;z-index:2;display:flex;align-items:center;gap:1px;height:20px;padding:0 5px 0 2px;border-radius:10px;
+  background:#d7efff;border:2px solid #2f7fc4;font:700 11px "Fredoka","Nunito",sans-serif;color:#17507f}
+.card .wcost img{width:15px;height:15px;image-rendering:pixelated}
+.card .wcost.plus{background:#c9f5d2;border-color:#3f9d4a;color:#1f5a26}
+.card .band{padding-right:44px}

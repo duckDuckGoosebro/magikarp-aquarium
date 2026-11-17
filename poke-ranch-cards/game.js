@@ -40,7 +40,7 @@ const FOOD = ['berry', 'corn', 'root', 'wheat', 'mushroom'];
 const CARDS = {
   // Crops (grow for a few turns, then harvest every turn)
   wheat:{kind:'crop',name:'Leek Patch',cost:0,rar:'C',terrain:['grass'],img:'leek',grow:2,make:{wheat:2},text:'Ripe in 2 turns, then 2 Leeks every turn.'},
-  corn:{kind:'crop',name:'Apple Tree',cost:1,rar:'C',terrain:['grass'],img:'apple',grow:3,make:{corn:3},text:'Ripe in 3 turns, then 3 Sweet Apples every turn.'},
+  corn:{kind:'crop',name:'Apple Tree',cost:1,rar:'C',terrain:['grass'],img:'apple',grow:3,make:{corn:3},text:'Ripe in 3 turns, then 3 Sweet Apples every turn. Drinks 2 Water.'},
   mushroom:{kind:'crop',name:'Mushroom Patch',cost:1,rar:'U',terrain:['grass','rock'],img:'mushroom',grow:3,make:{mushroom:2},text:'Grows on grass or rock. Ripe in 3 turns, then 2 Big Mushrooms.'},
   oran:{kind:'crop',name:'Oran Tree',cost:1,rar:'C',terrain:['grass'],img:'oran',grow:2,make:{berry:3},text:'Ripe in 2 turns, then 3 Oran Berries every turn.'},
   razz:{kind:'crop',name:'Razz Bush',cost:0,rar:'U',terrain:['grass'],img:'razz',grow:1,make:{berry:2},text:'Ripe next turn, then 2 Oran Berries. Combee love it.'},
@@ -197,11 +197,14 @@ function log(msg, cls = '') { S.log.unshift({msg, cls}); S.log.length = Math.min
 /* ---------- water (Terracards rule: crops need water to work) ---------- */
 // Wells make 5 Water a turn and every water island adds 2. Each land crop drinks 1 Water a turn.
 // Crops are watered in order (island by island, square by square); without water a crop stops: no harvest, no growing.
-const needsWater = o => kindOf(o) === 'crop' && !(CARDS[o.id].terrain.length === 1 && CARDS[o.id].terrain[0] === 'water');
+// water each crop drinks per turn (water crops drink 0)
+const WATER_COST = {wheat: 1, oran: 1, razz: 1, mushroom: 1, flowers: 1, corn: 2, lotus: 0, clam: 0};
+const waterCost = id => WATER_COST[id] !== undefined ? WATER_COST[id] : (CARDS[id].kind === 'crop' ? 1 : 0);
+const needsWater = o => kindOf(o) === 'crop' && waterCost(o.id) > 0;
 const waterSupply = () => 5 * countB('well') + 2 * owned().filter(j => T(j).t === 'water').length;
 function waterPlan() {
   let left = waterSupply(); const dry = new Set(); let need = 0;
-  for (const i of owned()) for (const o of T(i).slots) if (o && needsWater(o)) { need++; if (left > 0) left--; else dry.add(o.uid); }
+  for (const i of owned()) for (const o of T(i).slots) if (o && needsWater(o)) { const w = waterCost(o.id); need += w; if (left >= w) left -= w; else dry.add(o.uid); }
   return {supply: waterSupply(), need, dry};
 }
 let WATER = {supply: 0, need: 0, dry: new Set()};
@@ -548,8 +551,11 @@ function cardHTML(id, extra = '') {
   else if (d.kind === 'crop') { art = id === 'flowers' ? `<img class="crop" src="${cropImg(id, 3)}" alt="" style="height:auto;width:90px">` : `<img class="crop" src="${cropImg(id, 3)}" alt=""><img class="cropitem" src="${ART}items/${ITEM[Object.keys(d.make)[0]]}.png" alt="">`; type = `Crop · ${where(d.terrain)}`; }
   else { art = `<span class="bigico ico">${SVG[d.ico]}</span>`; type = d.kind === 'ter' ? 'Terrain' : d.target ? 'Action · tile' : 'Action'; }
   const rar = {C: '●', U: '◆', R: '★'}[d.rar];
+  // water badge: what a crop drinks per turn, or what a Well makes
+  const wv = d.kind === 'crop' ? waterCost(id) : id === 'well' ? '+5' : null;
+  const water = wv === null ? '' : `<div class="wcost${id === 'well' ? ' plus' : ''}" title="${id === 'well' ? 'Makes 5 Water a turn' : `Drinks ${wv} Water a turn`}"><img src="${ART}items/water_gem.png" alt="">${wv}</div>`;
   return `<div class="card ${cardKindClass(d)} ${extra}" data-id="${id}">
-    <div class="cost">${d.cost}</div><div class="band">${d.name}</div>
+    <div class="cost">${d.cost}</div>${water}<div class="band">${d.name}</div>
     <div class="art">${art}</div><div class="type">${type}</div><div class="txt" title="${d.text}">${SHORT[id] || d.text}</div><div class="rar">${rar}</div></div>`;
 }
 
