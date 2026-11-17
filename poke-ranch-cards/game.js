@@ -41,7 +41,7 @@ const CARDS = {
   // Crops (grow for a few turns, then harvest every turn)
   wheat:{kind:'crop',name:'Leek Patch',cost:0,rar:'C',terrain:['grass'],img:'leek',grow:2,make:{wheat:2},text:'Ripe in 2 turns, then 2 Leeks every turn.'},
   corn:{kind:'crop',name:'Apple Tree',cost:1,rar:'C',terrain:['grass'],img:'apple',grow:3,make:{corn:3},text:'Ripe in 3 turns, then 3 Sweet Apples every turn. Drinks 2 Water.'},
-  mushroom:{kind:'crop',name:'Mushroom Patch',cost:1,rar:'U',terrain:['grass','rock'],img:'mushroom',grow:3,make:{mushroom:2},text:'Grows on grass or rock. Ripe in 3 turns, then 2 Big Mushrooms.'},
+  mushroom:{kind:'crop',name:'Mushrooms',cost:1,rar:'U',terrain:['grass','rock'],img:'mushroom',grow:3,make:{mushroom:2},text:'Grows on grass or rock. Ripe in 3 turns, then 2 Big Mushrooms.'},
   oran:{kind:'crop',name:'Oran Tree',cost:1,rar:'C',terrain:['grass'],img:'oran',grow:2,make:{berry:3},text:'Ripe in 2 turns, then 3 Oran Berries every turn.'},
   razz:{kind:'crop',name:'Razz Bush',cost:0,rar:'U',terrain:['grass'],img:'razz',grow:1,make:{berry:2},text:'Ripe next turn, then 2 Oran Berries. Combee love it.'},
   lotus:{kind:'crop',name:'Lotus Root',cost:0,rar:'C',terrain:['water'],icon:'big_root',grow:2,make:{root:2},text:'Water crop. Ripe in 2 turns, then 2 Lotus Roots (Pokémon food).'},
@@ -554,7 +554,7 @@ function cardHTML(id, extra = '') {
   // water badge: what a crop drinks per turn, or what a Well makes
   const wv = d.kind === 'crop' ? waterCost(id) : id === 'well' ? '+5' : null;
   const water = wv === null ? '' : `<div class="wcost${id === 'well' ? ' plus' : ''}" title="${id === 'well' ? 'Makes 5 Water a turn' : `Drinks ${wv} Water a turn`}"><img src="${ART}items/water_gem.png" alt="">${wv}</div>`;
-  return `<div class="card ${cardKindClass(d)} ${extra}" data-id="${id}">
+  return `<div class="card ${cardKindClass(d)}${water ? ' has-w' : ''} ${extra}" data-id="${id}">
     <div class="cost">${d.cost}</div>${water}<div class="band">${d.name}</div>
     <div class="art">${art}</div><div class="type">${type}</div><div class="txt" title="${d.text}">${SHORT[id] || d.text}</div><div class="rar">${rar}</div></div>`;
 }
