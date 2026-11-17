@@ -477,34 +477,35 @@ const DECO = {
   rock: ['rock_grey', 'rocks_pink', 'rock_pink', 'boulder_grey', 'nugget', 'rock_moss', 'rock_dark'],
   water: [],
 };
-/* Island zones (fractions of the island size) — nothing ever overlaps:
-   - the slot grid (cards: crops, buildings) sits in the middle band
-   - background scenery sits only in the 4 corner squares, outside the grid
-   - walking Pokémon each get their own lane on the top or bottom strip, between the corners */
-const ZONE = {g: 0.045, B: 0.2};
-function decoHTML(i) {
-  const t = T(i), r = seeded(t.seed + t.t.length * 7), list = DECO[t.t];
-  if (!list.length) return '';
-  const {g, B} = ZONE, corners = [[g, g], [1 - g - B, g], [g, 1 - g - B], [1 - g - B, 1 - g - B]];
-  let h = '';
-  for (const [x, y] of corners) {
-    if (r() < 0.2) continue;
-    const name = list[Math.floor(r() * list.length)];
-    h += `<img class="deco" src="${simg(name)}" style="left:calc(var(--T)*${x});top:calc(var(--T)*${y})" alt="">`;
-  }
-  return h;
+/* Island layout (fractions of the island size): the 4 x 3 slot grid. No scenery sprites on the islands.
+   Each Pokémon walks inside its own slot, so no sprite ever overlaps another. */
+const GRID = {top: 0.09, side: 0.07, gap: 0.025, cols: 4, rows: 3};
+function slotRect(s) {
+  const {top, side, gap, cols, rows} = GRID;
+  const cw = (1 - 2 * side - (cols - 1) * gap) / cols, ch = (1 - 2 * top - (rows - 1) * gap) / rows;
+  const col = s % cols, row = Math.floor(s / cols), a = side + col * (cw + gap), y0 = top + row * (ch + gap);
+  return {a, b: a + cw, y0, y1: y0 + ch};
 }
+function decoHTML() { return ''; }
 let view = {c0: 0, r0: 0, T: 170};
+// camera: zoom and pan set by fingers (drag / pinch) or the mouse (drag / wheel); 1, 0, 0 = auto-framed
+const cam = {zoom: 1, px: 0, py: 0};
 function layout() {
-  // camera frames the islands you own; the "+ LAND" spots peek in from the edges
+  // auto-frame the islands you own; the "+ LAND" spots peek in from the edges
   const cells = owned();
   let r0 = G, r1 = 0, c0 = G, c1 = 0;
   for (const i of cells) { const [r, c] = rc(i); r0 = Math.min(r0, r); r1 = Math.max(r1, r); c0 = Math.min(c0, c); c1 = Math.max(c1, c); }
   const wrap = $('boardWrap'), W = wrap.clientWidth, H = wrap.clientHeight, cols = c1 - c0 + 1, rows = r1 - r0 + 1;
   const gap = 1.08;
-  const m = W < 600 ? 0.35 : 1.1;    // on phones the island fills more of the screen
-  const t = Math.floor(Math.min(W / (cols * gap + m), H / (rows * gap + m), 330));
-  view = {c0, r0, T: t, gap: Math.round(t * gap), ox: Math.round((W - cols * t * gap) / 2), oy: Math.round((H - rows * t * gap) / 2)};
+  const m = Math.min(W, H) < 600 ? 0.35 : 1.1;    // on phones the island fills more of the screen
+  const fitT = Math.min(W / (cols * gap + m), H / (rows * gap + m), 330);
+  const t = Math.round(Math.max(40, Math.min(700, fitT * cam.zoom)));
+  view = {c0, r0, T: t, gap: Math.round(t * gap), W, H,
+    ox: Math.round((W - cols * t * gap) / 2 + cam.px), oy: Math.round((H - rows * t * gap) / 2 + cam.py)};
+  // never lose the ranch: at least a bit of it stays on screen
+  const ww = cols * view.gap, hh = rows * view.gap, keep = Math.min(120, t);
+  const cx = Math.min(Math.max(view.ox, keep - ww), W - keep), cy = Math.min(Math.max(view.oy, keep - hh), H - keep);
+  cam.px += cx - view.ox; cam.py += cy - view.oy; view.ox = cx; view.oy = cy;
   document.documentElement.style.setProperty('--T', t + 'px');
 }
 const tileXY = i => { const [r, c] = rc(i); return [view.ox + (c - view.c0) * view.gap, view.oy + (r - view.r0) * view.gap]; };
@@ -625,7 +626,7 @@ function tipFlash(msg) {
 }
 
 /* ---------- walking Pokémon ---------- */
-// Each Pokémon walks in its own lane on its island (see ZONE).
+// Each Pokémon walks inside its own slot on its island (see GRID).
 const walkers = new Map();
 const DIRS = [[0, 1], [1, 1], [1, 0], [1, -1], [0, -1], [-1, -1], [-1, 0], [-1, 1]]; // PMD rows: down, down-right, right, up-right, up, up-left, left, down-left
 function walkerEl(dex) {
@@ -640,22 +641,16 @@ function setSheet(w, dex) {
 }
 function syncWalkers() {
   const live = new Set();
-  const {g, B} = ZONE, L = 1 - 2 * g - 2 * B;
-  for (const i of owned()) {
-    const mons = monsOn(i).sort((x, y) => x.uid - y.uid), n = mons.length, nTop = Math.ceil(n / 2);
-    mons.forEach((o, k) => {
-      live.add(o.uid);
-      let w = walkers.get(o.uid);
-      if (!w) { w = walkerEl(stageDex(o)); setSheet(w, stageDex(o)); w.fx = -1; w.wait = Math.random() * 2; w.t = 0; w.dir = 0; walkers.set(o.uid, w); }
-      if (w.dex !== stageDex(o)) setSheet(w, stageDex(o));
-      // its own lane: top strip for the first half, bottom strip for the rest
-      const top = k < nTop, idx = top ? k : k - nTop, cnt = top ? nTop : n - nTop;
-      const a = g + B + L * idx / cnt, b2 = a + L / cnt, y0 = top ? g : 1 - g - B;
-      w.lane = {a, b: b2, y0, y1: y0 + B};
-      if (w.fx < a || w.fx > b2) { w.fx = (a + b2) / 2; w.tx = w.fx; }
-      w.tile = i; w.o = o; w.water = T(i).t === 'water';
-    });
-  }
+  for (const i of owned()) T(i).slots.forEach((o, si) => {
+    if (!o || kindOf(o) !== 'mon') return;
+    live.add(o.uid);
+    let w = walkers.get(o.uid);
+    if (!w) { w = walkerEl(stageDex(o)); setSheet(w, stageDex(o)); w.fx = -1; w.wait = Math.random() * 2; w.t = 0; w.dir = 0; walkers.set(o.uid, w); }
+    if (w.dex !== stageDex(o)) setSheet(w, stageDex(o));
+    w.lane = slotRect(si);                       // it walks inside its own slot
+    if (w.fx < w.lane.a || w.fx > w.lane.b) { w.fx = (w.lane.a + w.lane.b) / 2; w.tx = w.fx; }
+    w.tile = i; w.o = o; w.water = T(i).t === 'water';
+  });
   for (const [k, w] of walkers) if (!live.has(k)) { w.el.remove(); walkers.delete(k); }
 }
 let lastT = performance.now();
@@ -676,7 +671,7 @@ function tick(now) {
       const anim = w.data ? (moving ? w.data.walk : (w.data.idle || w.data.walk)) : {w: 40, h: 30, n: 1, rows: 1, dur: [1]};
       // the sprite is sized to fit inside its lane, then kept inside it
       const laneW = (ln.b - ln.a) * Tp, laneH = (ln.y1 - ln.y0) * Tp;
-      const sc = Math.min(2.4, laneH * 0.98 / anim.h, laneW * 0.98 / anim.w);
+      const sc = Math.min(2.4, laneH * 1.0 / anim.h, laneW * 1.0 / anim.w);
       const sw = anim.w * sc, sh = anim.h * sc;
       const cx = Math.min(Math.max(w.fx * Tp, ln.a * Tp + sw / 2), ln.b * Tp - sw / 2);
       const left = x0 + cx - sw / 2, topPx = y0 + ln.y1 * Tp - sh, py = topPx + sh;
@@ -794,8 +789,72 @@ document.addEventListener('keydown', e => {
 document.addEventListener('contextmenu', e => { if (S && S.sel !== null) { e.preventDefault(); S.sel = null; render(); } });
 function fit() { if (S) render(); }
 
+
+/* ---------- move the map with your finger: drag to pan, pinch (or mouse wheel) to zoom ---------- */
+const gesture = {pts: new Map(), drag: false, start: null, s: 1, dx: 0, dy: 0};
+function worldTransform() { $('world').style.transform = `translate(${gesture.dx}px,${gesture.dy}px) scale(${gesture.s})`; }
+function commitGesture() {
+  // turn the live CSS transform into a real camera change, then redraw crisp
+  if (gesture.s === 1 && !gesture.dx && !gesture.dy) return;
+  const ox = gesture.dx + gesture.s * view.ox, oy = gesture.dy + gesture.s * view.oy, z = cam.zoom * gesture.s;
+  cam.zoom = Math.max(0.45, Math.min(3.5, z));
+  gesture.s = 1; gesture.dx = 0; gesture.dy = 0; worldTransform();
+  const px = cam.px, py = cam.py; cam.px = 0; cam.py = 0; layout();
+  cam.px = ox - view.ox; cam.py = oy - view.oy;
+  render();
+}
+function wrapPoint(e) { const r = $('boardWrap').getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
+const bw = $('boardWrap');
+bw.addEventListener('pointerdown', e => {
+  if (e.button && e.button !== 0) return;
+  gesture.pts.set(e.pointerId, wrapPoint(e));
+  if (gesture.pts.size === 1) { gesture.start = {p: wrapPoint(e), dx: gesture.dx, dy: gesture.dy}; gesture.drag = false; }
+  if (gesture.pts.size === 2) {
+    const [a, b] = [...gesture.pts.values()];
+    gesture.pinch = {d: Math.hypot(a[0] - b[0], a[1] - b[1]) || 1, mid: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], s: gesture.s, dx: gesture.dx, dy: gesture.dy};
+    gesture.drag = true;
+  }
+});
+bw.addEventListener('pointermove', e => {
+  if (!gesture.pts.has(e.pointerId)) return;
+  gesture.pts.set(e.pointerId, wrapPoint(e));
+  if (gesture.pts.size >= 2 && gesture.pinch) {
+    const [a, b] = [...gesture.pts.values()], P = gesture.pinch;
+    const d = Math.hypot(a[0] - b[0], a[1] - b[1]), mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    const s = Math.max(0.45 / cam.zoom, Math.min(3.5 / cam.zoom, P.s * d / P.d));
+    // keep the point between the fingers under the fingers
+    gesture.dx = mid[0] - (P.mid[0] - P.dx) * s / P.s; gesture.dy = mid[1] - (P.mid[1] - P.dy) * s / P.s; gesture.s = s;
+    worldTransform(); return;
+  }
+  const st = gesture.start; if (!st) return;
+  const [x, y] = wrapPoint(e), mx = x - st.p[0], my = y - st.p[1];
+  if (!gesture.drag && Math.hypot(mx, my) > 8) { gesture.drag = true; bw.setPointerCapture(e.pointerId); }
+  if (gesture.drag) { gesture.dx = st.dx + mx; gesture.dy = st.dy + my; worldTransform(); }
+});
+function endPointer(e) {
+  if (!gesture.pts.has(e.pointerId)) return;
+  gesture.pts.delete(e.pointerId);
+  if (gesture.pts.size === 1) { const [p] = gesture.pts.values(); gesture.start = {p, dx: gesture.dx, dy: gesture.dy}; gesture.pinch = null; return; }
+  if (gesture.pts.size === 0) {
+    gesture.pinch = null; gesture.start = null;
+    if (gesture.drag) { gesture.justDragged = true; setTimeout(() => { gesture.justDragged = false; }, 50); }
+    commitGesture();
+  }
+}
+bw.addEventListener('pointerup', endPointer);
+bw.addEventListener('pointercancel', endPointer);
+// a drag is not a tap: swallow the click that follows it
+bw.addEventListener('click', e => { if (gesture.justDragged) { e.stopPropagation(); e.preventDefault(); } }, true);
+bw.addEventListener('wheel', e => {
+  e.preventDefault();
+  const [x, y] = wrapPoint(e), f = Math.exp(-e.deltaY * 0.0015);
+  const z = Math.max(0.45, Math.min(3.5, cam.zoom * f)), k = z / cam.zoom;
+  gesture.dx = x - (x - gesture.dx) * k; gesture.dy = y - (y - gesture.dy) * k; gesture.s *= k;
+  commitGesture();
+}, {passive: false});
+$('recenter').onclick = e => { e.stopPropagation(); cam.zoom = 1; cam.px = 0; cam.py = 0; render(); };
 /* ---------- phone: market and info open as slide-up sheets ---------- */
-const isPhone = () => window.matchMedia('(max-width: 820px)').matches;
+const isPhone = () => window.matchMedia('(max-width: 820px), (max-height: 520px)').matches;
 function openSheet(id) {
   closeSheets();
   $(id).classList.add('open'); $('sheetShade').classList.remove('hidden');
