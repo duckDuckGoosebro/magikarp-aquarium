@@ -10,15 +10,15 @@ const RODS = [
 ];
 // hab multipliers: how much fish living at surface / mid / bottom like this lure
 const LURES = [
-  { id: 'worm', name: 'Wiggle Worm', price: 0, size: 1, sink: 0.9, dive: 0, speed: 1.0, app: 0.9, hab: { s: 0.6, m: 1, b: 1 }, desc: 'Plain old bait. Works on small fish near the bottom.' },
-  { id: 'spinner', name: 'Silver Spinner', price: 150, size: 2, sink: 0.5, dive: -0.35, speed: 1.1, app: 1.1, hab: { s: 1.3, m: 1.2, b: 0.4 }, desc: 'Flashy blade. Rises as you reel. Great for shallows.' },
-  { id: 'popper', name: 'Splash Popper', price: 300, size: 3, sink: 0, dive: 0, speed: 1.0, app: 1.1, hab: { s: 2.4, m: 0.35, b: 0 }, desc: 'Floats on top. JERK to make it pop. Surface fish only.' },
-  { id: 'crank', name: 'Deep Crank', price: 600, size: 3, sink: -0.5, dive: 1.5, speed: 1.0, app: 1.0, hab: { s: 0.4, m: 1.5, b: 1.1 }, desc: 'Dives when reeled, floats up when you stop.' },
-  { id: 'jig', name: 'Lead Jig', price: 800, size: 2, sink: 2.4, dive: 0, speed: 0.9, app: 1.0, hab: { s: 0.1, m: 0.8, b: 1.9 }, desc: 'Sinks like a rock. Bottom dwellers love it.' },
-  { id: 'spoon', name: 'Gold Spoon', price: 1200, size: 3, sink: 1.2, dive: 0.2, speed: 1.15, app: 1.15, hab: { s: 0.6, m: 1.7, b: 1.0 }, desc: 'Wobbles like a hurt fish. Big mid-water fish bite it.' },
-  { id: 'shrimp', name: 'Soft Shrimp', price: 2000, size: 2, sink: 1.0, dive: 0, speed: 1.0, app: 1.3, hab: { s: 1.1, m: 1.3, b: 1.3 }, desc: 'Smells delicious. The best all-rounder.' },
-  { id: 'glow', name: 'Glow Lure', price: 4000, size: 3, sink: 1.1, dive: 0.1, speed: 1.0, app: 1.2, hab: { s: 0.7, m: 1.4, b: 1.6 }, night: 1.8, desc: 'Shines in the dark. Doubly good at night and in caves.' },
-  { id: 'rainbow', name: 'Rainbow Lure', price: 12000, size: 4, sink: 1.0, dive: 0.1, speed: 1.1, app: 1.6, hab: { s: 1.4, m: 1.6, b: 1.6 }, rare: 2.2, desc: 'Shimmers every colour. Rare Pokémon cannot resist it.' },
+  { id: 'worm', name: 'Caterpie', price: 0, size: 1, sink: 0.9, dive: 0, speed: 1.0, app: 0.9, hab: { s: 0.6, m: 1, b: 1 }, desc: 'A wriggling Caterpie as live bait. Works on small fish near the bottom.' },
+  { id: 'spinner', name: 'Pecha Berry', price: 150, size: 2, sink: 0.5, dive: -0.35, speed: 1.1, app: 1.1, hab: { s: 1.3, m: 1.2, b: 0.4 }, desc: 'Sweet pink berry. Rises as you reel. Great for shallows.' },
+  { id: 'popper', name: 'Cheri Berry', price: 300, size: 3, sink: 0, dive: 0, speed: 1.0, app: 1.1, hab: { s: 2.4, m: 0.35, b: 0 }, desc: 'Bobs on top. JERK to make it pop. Surface fish only.' },
+  { id: 'crank', name: 'Oran Berry', price: 600, size: 3, sink: -0.5, dive: 1.5, speed: 1.0, app: 1.0, hab: { s: 0.4, m: 1.5, b: 1.1 }, desc: 'Dives when reeled, floats up when you stop.' },
+  { id: 'jig', name: 'Rawst Berry', price: 800, size: 2, sink: 2.4, dive: 0, speed: 0.9, app: 1.0, hab: { s: 0.1, m: 0.8, b: 1.9 }, desc: 'Heavy and bitter. Sinks like a rock. Bottom dwellers love it.' },
+  { id: 'spoon', name: 'Sitrus Berry', price: 1200, size: 3, sink: 1.2, dive: 0.2, speed: 1.15, app: 1.15, hab: { s: 0.6, m: 1.7, b: 1.0 }, desc: 'Juicy and golden. Big mid-water fish bite it.' },
+  { id: 'shrimp', name: 'Lum Berry', price: 2000, size: 2, sink: 1.0, dive: 0, speed: 1.0, app: 1.3, hab: { s: 1.1, m: 1.3, b: 1.3 }, desc: 'Smells delicious to everything. The best all-rounder.' },
+  { id: 'glow', name: 'Starf Berry', price: 4000, size: 3, sink: 1.1, dive: 0.1, speed: 1.0, app: 1.2, hab: { s: 0.7, m: 1.4, b: 1.6 }, night: 1.8, desc: 'Shines like a star. Doubly good at night and in caves.' },
+  { id: 'rainbow', name: 'Golden Razz Berry', price: 12000, size: 4, sink: 1.0, dive: 0.1, speed: 1.1, app: 1.6, hab: { s: 1.4, m: 1.6, b: 1.6 }, rare: 2.2, desc: 'Shimmers like gold. Rare Pokémon cannot resist it.' },
 ];
 const SPOTS = [
   { id: 'pond', name: 'Lilypad Pond', W: 40, D: 8, unlock: 0, fc: 15, tour: 38, ent: 150, water: ['#7fe0c0', '#1b6a60'], env: 'pond', cave: false, desc: 'A calm green pond. Perfect for learning the ropes.' },

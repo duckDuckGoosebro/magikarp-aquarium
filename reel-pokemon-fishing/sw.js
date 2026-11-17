@@ -1,5 +1,5 @@
 // Network-first service worker: always loads the newest game files, falls back to the cache when offline.
-const CACHE = 'reel-pokemon-fishing-v2';
+const CACHE = 'reel-pokemon-fishing-v3';
 self.addEventListener('install', e => { self.skipWaiting(); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener('fetch', e => {

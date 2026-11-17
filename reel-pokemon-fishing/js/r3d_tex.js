@@ -182,6 +182,11 @@ function buildT3() {
     c = t3canvas(128); g = c.getContext('2d'); g.strokeStyle = '#fff'; g.lineWidth = 6; g.setLineDash([26, 14]); g.beginPath(); g.arc(64, 64, 54, 0, 7); g.stroke(); g.setLineDash([]); g.fillStyle = '#fff'; g.beginPath(); g.arc(64, 64, 7, 0, 7); g.fill();
     T3.target = t3tex(c, { repeat: false });
   }
+  {
+    const c = t3canvas(128, 256), g = c.getContext('2d'); g.fillStyle = '#bfe8f4'; g.fillRect(0, 0, 128, 256);
+    for (let i = 0; i < 260; i++) { g.strokeStyle = 'rgba(255,255,255,' + (0.25 + R() * 0.6) + ')'; g.lineWidth = 1 + R() * 4; const x = R() * 128, y = R() * 256, l = 20 + R() * 70; for (const oy of [0, 256, -256]) { g.beginPath(); g.moveTo(x, y + oy); g.lineTo(x + (R() - 0.5) * 4, y + oy + l); g.stroke(); } }
+    T3.fall = t3tex(c);
+  }
   T3.lure = {};
 }
 // lure textures reuse the existing 2D lure art (actors.js drawLure)

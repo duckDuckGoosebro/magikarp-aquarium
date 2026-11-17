@@ -10,6 +10,8 @@ async function boot() {
     jobs.push(loadImg('sprites/' + id + '.png').then(i => { IMG[id] = i; done++; loadProg = done / (ids.length * 1.3); }));
     if (SPECIES[id].shiny) jobs.push(loadImg('sprites/' + id + '_s.png').then(i => { IMG[id + '_s'] = i; }));
   }
+  for (const b of ['pecha', 'cheri', 'oran', 'rawst', 'sitrus', 'lum', 'starf', 'golden-razz']) jobs.push(loadImg('sprites/berries/' + b + '.png').then(i => { IMG['berry_' + b] = i; }).catch(() => { }));
+  jobs.push(loadImg('sprites/caterpie.png').then(i => { IMG.caterpie = i; CATERPIE.fh = i.height; CATERPIE.fw = i.height; CATERPIE.n = Math.max(1, Math.floor(i.width / i.height)); }).catch(() => { }));
   await Promise.all(jobs);
   // drop species whose sprite failed to load so nothing is ever missing
   for (const id of ids) if (!IMG[id]) { delete SPECIES[id]; for (const k in POOLS) POOLS[k] = POOLS[k].filter(p => p[0] !== id); }

@@ -1,4 +1,11 @@
-REEL POKEMON FISHING
+REEL POKEMON FISHING - BERRIES EDITION
+======================================
+This is a copy of REEL POKEMON FISHING where every LURE is a BERRY and the plain bait (the "worm") is a CATERPIE:
+  Caterpie (bait)  Pecha  Cheri  Oran  Rawst  Sitrus  Lum  Starf (glows)  Golden Razz (rainbow lure)
+The berries are the item pictures in sprites/berries/, Caterpie is sprites/caterpie.png. Ids, prices and bite behaviour are the same as the
+original, only the names and pictures changed. It also has the hook fix (the fish bites with its MOUTH) and the Magikarp flip.
+
+(original readme follows)
 ====================
 A Reel Fishing (PS1) inspired game. Every fish is a real Pokemon sprite taken from the
 shared sprite folder (FISH TANK 2/sprites). Nothing about the fish is generated.
@@ -40,8 +47,3 @@ FOLDERS
   tools/     build_assets.py - re-run after changing the fish table / pools
 
 Sprites: PMDCollab SpriteCollab, CC BY-NC 4.0 (credit the artists, non-commercial use).
-
-HOOK FIX
-  The lure/hook now meets the fish's MOUTH, not its middle or tail: tools/add_mouths.py stores a mouth point ("mo") for every species in data.js
-  (run it again after tools/build_assets.py), the fish swims so its mouth reaches the lure, and the line ends at the mouth while you fight it.
-  A copy of the game from before this fix is in ../REEL POKEMON FISHING (no hook fix). Magikarp's sprite strip was also flipped right-side-up.

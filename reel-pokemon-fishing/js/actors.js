@@ -88,45 +88,28 @@ function drawAnglerArms(x, y, h1, h2, t, o = {}) {
 function lureGlint(x, y, t) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.45 + 0.45 * Math.sin(t * 7); ctx.fillStyle = '#fff'; ctx.fillRect(x - 0.6, y - 5, 1.2, 10); ctx.fillRect(x - 5, y - 0.6, 10, 1.2); ctx.restore(); }
 
 // ---------------------------------------------------------------- drawing: lure
+// BERRY EDITION: every lure is a Berry picture (sprites/berries/*.png, from the item sprites); the plain bait is a Caterpie (sprites/caterpie.png, animated).
+// lure id -> berry picture. (ids stay the same as the original game so saves, prices and bite behaviour are unchanged)
+const LURE_ART = { spinner: 'pecha', popper: 'cheri', crank: 'oran', jig: 'rawst', spoon: 'sitrus', shrimp: 'lum', glow: 'starf', rainbow: 'golden-razz' };
+const CATERPIE = { fw: 40, fh: 40, n: 4 };            // frame size / count of sprites/caterpie.png (set from the image when it loads, see berryInit)
 function drawLure(id, x, y, s = 1, rot = 0, t = 0) {
-  ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.scale(s, s);
-  ctx.lineWidth = 1.4; ctx.strokeStyle = '#222';
-  switch (id) {
-    case 'worm': {
-      ctx.strokeStyle = '#d86a8a'; ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.beginPath();
-      for (let i = 0; i <= 10; i++) { const px = -9 + i * 1.8, py = Math.sin(i * 0.9 + t * 8) * 2.6; i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); } ctx.stroke();
-      ctx.strokeStyle = '#f7a3b8'; ctx.lineWidth = 1.4; ctx.stroke(); break;
-    }
-    case 'spinner':
-      ctx.fillStyle = '#e8f0f8'; ctx.beginPath(); ctx.ellipse(-4, -3, 7, 3.2, -0.5 + Math.sin(t * 20) * 0.4, 0, 7); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = '#e0452f'; ctx.beginPath(); ctx.ellipse(5, 1, 5, 2.6, 0, 0, 7); ctx.fill(); ctx.stroke(); break;
-    case 'popper':
-      ctx.fillStyle = '#f2c230'; ctx.beginPath(); ctx.moveTo(-9, -3); ctx.lineTo(4, -5); ctx.lineTo(10, 2); ctx.lineTo(-8, 4); ctx.closePath(); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = '#d33'; ctx.fillRect(-9, -3, 4, 7); ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(5, -1, 1.4, 0, 7); ctx.fill(); break;
-    case 'crank':
-      ctx.fillStyle = '#4caf50'; ctx.beginPath(); ctx.ellipse(0, 0, 10, 5.5, 0, 0, 7); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = '#111'; ctx.fillRect(7, 1, 7, 2.6); ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(5, -1.5, 1.5, 0, 7); ctx.fill(); break;
-    case 'jig':
-      ctx.fillStyle = '#6a7380'; ctx.beginPath(); ctx.arc(0, 0, 5.5, 0, 7); ctx.fill(); ctx.stroke();
-      ctx.strokeStyle = '#f08a24'; ctx.lineWidth = 2.2; for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.moveTo(i * 1.5, 4); ctx.lineTo(i * 3, 12 + Math.sin(t * 10 + i) * 1.2); ctx.stroke(); } break;
-    case 'spoon':
-      ctx.fillStyle = '#f4c542'; ctx.beginPath(); ctx.ellipse(0, 0, 9, 4.5, Math.sin(t * 9) * 0.3, 0, 7); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.beginPath(); ctx.ellipse(-2, -1.4, 4, 1.2, 0, 0, 7); ctx.fill(); break;
-    case 'shrimp':
-      ctx.strokeStyle = '#ff9157'; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.beginPath(); ctx.arc(0, 2, 7, Math.PI * 1.1, Math.PI * 2.05); ctx.stroke();
-      ctx.strokeStyle = '#ffd1b0'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(0, 2, 7, Math.PI * 1.2, Math.PI * 1.9); ctx.stroke();
-      ctx.fillStyle = '#222'; ctx.beginPath(); ctx.arc(6, -2, 1.1, 0, 7); ctx.fill(); break;
-    case 'glow': {
-      const g = ctx.createRadialGradient(0, 0, 1, 0, 0, 14); g.addColorStop(0, 'rgba(160,255,160,.9)'); g.addColorStop(1, 'rgba(160,255,160,0)');
-      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, 14, 0, 7); ctx.fill();
-      ctx.fillStyle = '#b6ff8a'; ctx.beginPath(); ctx.ellipse(0, 0, 8, 4, 0, 0, 7); ctx.fill(); ctx.stroke(); break;
-    }
-    case 'rainbow': {
-      const g = ctx.createLinearGradient(-9, 0, 9, 0);
-      ['#ff4d4d', '#ffb84d', '#fff04d', '#5cff6a', '#4db8ff', '#c14dff'].forEach((c, i) => g.addColorStop(i / 5, c));
-      ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(0, 0, 10, 4.8, 0, 0, 7); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = '#fff'; ctx.globalAlpha = 0.6 + 0.4 * Math.sin(t * 8); ctx.fillRect(-1, -9, 2, 5); ctx.fillRect(-3, -7, 6, 1.6); break;
-    }
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.scale(s, s); ctx.imageSmoothingEnabled = false;
+  if (id === 'glow') {   // the Starf Berry glows
+    const g = ctx.createRadialGradient(0, 0, 1, 0, 0, 16); g.addColorStop(0, 'rgba(255,255,160,.85)'); g.addColorStop(1, 'rgba(255,255,160,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, 16, 0, 7); ctx.fill();
+  }
+  if (id === 'rainbow') { ctx.fillStyle = '#fff'; ctx.globalAlpha = 0.5 + 0.5 * Math.sin(t * 8); ctx.fillRect(-1, -14, 2, 5); ctx.fillRect(-3, -12, 6, 1.6); ctx.globalAlpha = 1; }
+  if (id === 'worm') {
+    const im = IMG.caterpie;
+    if (im) {
+      const fr = Math.floor(t * 6) % CATERPIE.n, hh = 32, ww = hh * CATERPIE.fw / CATERPIE.fh;
+      ctx.drawImage(im, fr * CATERPIE.fw, 0, CATERPIE.fw, CATERPIE.fh, -ww / 2, -hh / 2 - 1, ww, hh);
+    } else { ctx.fillStyle = '#7ccf5a'; ctx.beginPath(); ctx.ellipse(0, 0, 8, 4, 0, 0, 7); ctx.fill(); }
+  } else {
+    const im = IMG['berry_' + LURE_ART[id]];
+    const wob = id === 'spinner' ? Math.sin(t * 20) * 0.35 : id === 'spoon' ? Math.sin(t * 9) * 0.3 : 0;
+    ctx.rotate(wob);
+    if (im) ctx.drawImage(im, -11, -11, 22, 22); else { ctx.fillStyle = '#e0452f'; ctx.beginPath(); ctx.arc(0, 0, 6, 0, 7); ctx.fill(); }
   }
   ctx.restore();
 }
