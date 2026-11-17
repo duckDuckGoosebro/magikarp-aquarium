@@ -633,19 +633,39 @@ function setSheet(w, dex) {
   if (!wd) { w.el.classList.add('icon'); w.el.style.backgroundImage = `url(${icon(dex)})`; w.data = null; return; }
   w.el.classList.remove('icon'); w.data = wd;
 }
+/* Walking rules: a Pokémon roams its whole island, square by square on the 4 x 3 grid.
+   It may walk through EMPTY squares and Pokémon squares, never over a crop or a building,
+   and it books the square it steps into, so two Pokémon never overlap either. */
+const walkable = (i, c) => { const o = T(i).slots[c]; return !o || kindOf(o) === 'mon'; };
+const gridNbs = c => { const {cols, rows} = GRID, r = Math.floor(c / cols), k = c % cols, out = [];
+  if (k > 0) out.push(c - 1); if (k < cols - 1) out.push(c + 1); if (r > 0) out.push(c - cols); if (r < rows - 1) out.push(c + cols); return out; };
+function booked(i, except) {
+  const b = new Set();
+  for (const [, w] of walkers) if (w !== except && w.tile === i && w.cell !== undefined) { b.add(w.cell); if (w.next !== null && w.next !== undefined) b.add(w.next); }
+  return b;
+}
 function syncWalkers() {
   const live = new Set();
   for (const i of owned()) T(i).slots.forEach((o, si) => {
     if (!o || kindOf(o) !== 'mon') return;
     live.add(o.uid);
     let w = walkers.get(o.uid);
-    if (!w) { w = walkerEl(stageDex(o)); setSheet(w, stageDex(o)); w.fx = -1; w.wait = Math.random() * 2; w.t = 0; w.dir = 0; walkers.set(o.uid, w); }
+    if (!w) { w = walkerEl(stageDex(o)); setSheet(w, stageDex(o)); w.wait = Math.random() * 2; w.t = 0; w.dir = 0; w.cell = si; w.next = null; w.prog = 0; walkers.set(o.uid, w); }
     if (w.dex !== stageDex(o)) setSheet(w, stageDex(o));
-    w.lane = slotRect(si);                       // it walks inside its own slot
-    if (w.fx < w.lane.a || w.fx > w.lane.b) { w.fx = (w.lane.a + w.lane.b) / 2; w.tx = w.fx; }
-    w.tile = i; w.o = o; w.water = T(i).t === 'water';
+    if (w.tile !== i) { w.cell = si; w.next = null; w.prog = 0; }
+    w.tile = i; w.o = o; w.home = si; w.water = T(i).t === 'water';
   });
   for (const [k, w] of walkers) if (!live.has(k)) { w.el.remove(); walkers.delete(k); }
+  // something was planted or built where a Pokémon stood: send it home (its own square is always free)
+  let moved = true;
+  for (let guard = 0; moved && guard < 20; guard++) {
+    moved = false;
+    for (const [, w] of walkers) {
+      const bad = !walkable(w.tile, w.cell) || (w.next !== null && !walkable(w.tile, w.next));
+      const clash = [...walkers.values()].some(v => v !== w && v.tile === w.tile && (v.cell === w.cell || (v.next !== null && v.next === w.cell)) && v.cell === v.home);
+      if (bad || (clash && w.cell !== w.home)) { w.cell = w.home; w.next = null; w.prog = 0; moved = true; }
+    }
+  }
 }
 let lastT = performance.now();
 function tick(now) {
@@ -653,22 +673,33 @@ function tick(now) {
   if (S) {
     const Tp = view.T;
     for (const [, w] of walkers) {
-      if (!T(w.tile) || !T(w.tile).owned || !w.lane) continue;
-      const ln = w.lane, moving = w.wait <= 0 && !(w.o && w.o.hungry);
+      if (!T(w.tile) || !T(w.tile).owned || w.cell === undefined) continue;
+      let moving = w.next !== null;
+      if (!moving && w.wait <= 0 && !(w.o && w.o.hungry)) {
+        // pick a free neighbouring square to walk into (empty or a Pokémon square, not booked)
+        const bk = booked(w.tile, w), opts = gridNbs(w.cell).filter(c => walkable(w.tile, c) && !bk.has(c));
+        if (opts.length) { w.next = pick(opts); w.prog = 0; moving = true; } else w.wait = rnd(0.5, 1.5);
+      }
       if (moving) {
-        const dx = w.tx - w.fx, sp = 0.1 * dt;
-        if (Math.abs(dx) < sp) { w.fx = w.tx; w.wait = rnd(0.8, 3.2); w.tx = rnd(ln.a, ln.b); }
-        else { w.fx += Math.sign(dx) * sp; w.dir = dx > 0 ? 2 : 6; }
-      } else { w.wait -= dt; if (w.wait < 0.6) w.dir = 0; }
+        w.prog += 0.9 * dt;
+        if (w.prog >= 1) { w.cell = w.next; w.next = null; w.prog = 0; moving = false; w.wait = rnd(0.6, 2.8); }
+      } else { w.wait -= dt; if (w.wait < 0.5) w.dir = 0; }
       w.t += dt;
       const [x0, y0] = tileXY(w.tile);
       const anim = w.data ? (moving ? w.data.walk : (w.data.idle || w.data.walk)) : {w: 40, h: 30, n: 1, rows: 1, dur: [1]};
-      // the sprite is sized to fit inside its lane, then kept inside it
-      const laneW = (ln.b - ln.a) * Tp, laneH = (ln.y1 - ln.y0) * Tp;
-      const sc = Math.min(2.4, laneH * 1.0 / anim.h, laneW * 1.0 / anim.w);
+      // sized to fit inside one square, so it only ever covers the square(s) it booked
+      const r0 = slotRect(w.cell), wk = w.data ? w.data.walk : anim, id = w.data && w.data.idle ? w.data.idle : wk;
+      const base = {w: Math.max(wk.w, id.w), h: Math.max(wk.h, id.h)};   // biggest frame, so walking or standing it fits
+      const cw = (r0.b - r0.a) * Tp, ch = (r0.y1 - r0.y0) * Tp;
+      const sc = Math.min(2.4, ch / base.h, cw / base.w) * 0.98;
       const sw = anim.w * sc, sh = anim.h * sc;
-      const cx = Math.min(Math.max(w.fx * Tp, ln.a * Tp + sw / 2), ln.b * Tp - sw / 2);
-      const left = x0 + cx - sw / 2, topPx = y0 + ln.y1 * Tp - sh, py = topPx + sh;
+      let fx = (r0.a + r0.b) / 2, fy = r0.y1;
+      if (moving) {
+        const r1 = slotRect(w.next), tx = (r1.a + r1.b) / 2, ty = r1.y1;
+        w.dir = tx > fx ? 2 : tx < fx ? 6 : ty > fy ? 0 : 4;
+        fx += (tx - fx) * w.prog; fy += (ty - fy) * w.prog;
+      }
+      const left = x0 + fx * Tp - sw / 2, topPx = y0 + fy * Tp - sh, py = topPx + sh;
       w.el.style.width = sw + 'px'; w.el.style.height = sh + 'px';
       w.el.style.left = left + 'px'; w.el.style.top = topPx + 'px';
       if (w.data) {
