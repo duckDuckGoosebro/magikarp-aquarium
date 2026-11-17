@@ -147,10 +147,10 @@ function newRun() {
   const board = [];
   for (let i = 0; i < G * G; i++) board.push(newTile('grass'));
   board[CENTER].owned = true;
-  // Terracards starter deck: 6 Leek Patch (wheat), 4 Miltank (cow), 4 Well, 2 Fence.
+  // Starter deck (Terracards layout, fewer animals): 6 Leek Patch, 2 Miltank, 4 Well, 2 Fence.
   // Day one always opens with 2 Leek Patch, 1 Well, 1 Fence, 1 Miltank; the rest is shuffled.
   const firstHand = ['wheat', 'wheat', 'well', 'fence', 'miltank'].map(mk);
-  const deck = ['wheat', 'wheat', 'wheat', 'wheat', 'miltank', 'miltank', 'miltank', 'well', 'well', 'well', 'fence'].map(mk);
+  const deck = ['wheat', 'wheat', 'wheat', 'wheat', 'miltank', 'well', 'well', 'well', 'fence'].map(mk);
   S = {
     turn: 1, coins: 20, energy: 3, freeRerolls: 3, rerolledThisTurn: false, deck: shuffle(deck), hand: firstHand, discard: [], board,
     stock: Object.fromEntries(RES_KEYS.map(k => [k, 0])),
@@ -862,7 +862,7 @@ function showHelp() {
     <li>Goods sell at the end of each turn. Prices move, so tick <b>hold</b> to wait for a better price.</li>
     <li>Click <b>+ LAND</b> to buy a new island next to yours. You choose grass, water or rock.</li>
     <li><b>Water:</b> Wells make 10 Water a turn (water islands 2). Crops and Pokémon drink it — the blue badge on each card shows how much. No water = no harvest, and thirsty Pokémon lose hearts.</li>
-    <li><b>Starter deck</b> (like Terracards): 6 Leek Patch, 4 Miltank, 4 Well, 2 Fence. Day one: 2 Leek, 1 Well, 1 Fence, 1 Miltank.</li>
+    <li><b>Starter deck</b> (like Terracards): 6 Leek Patch, 2 Miltank, 4 Well, 2 Fence. Day one: 2 Leek, 1 Well, 1 Fence, 1 Miltank.</li>
     <li>Matching crops <b>side by side</b> make +1. Pokémon live in <b>Fences</b> (2 each).</li>
     <li>Wells and Fences cost <b>1 coin upkeep</b> a turn.</li>
     <li>Every <b>10 turns</b> pay taxes; if your coins go below zero the run ends. Each payment earns a <b>badge</b>. Every 3 turns you pick a new card (free rerolls build up).</li></ul></div>
