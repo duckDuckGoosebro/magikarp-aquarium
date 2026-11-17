@@ -474,7 +474,7 @@ function seeded(seed) { let s = seed >>> 0; return () => ((s = (s * 1664525 + 10
 // no scenery sprites on the islands (owner: "remove all sprites from island")
 /* Island layout (fractions of the island size): the 4 x 3 slot grid. No scenery sprites on the islands.
    Each Pokémon walks inside its own slot, so no sprite ever overlaps another. */
-const GRID = {top: 0.05, side: 0.05, gap: 0.025, cols: 4, rows: 3};   // must match .tile .slots in style.css
+const GRID = {top: 0.09, side: 0.07, gap: 0.025, cols: 4, rows: 3};   // must match .tile .slots in style.css
 function slotRect(s) {
   const {top, side, gap, cols, rows} = GRID;
   const cw = (1 - 2 * side - (cols - 1) * gap) / cols, ch = (1 - 2 * top - (rows - 1) * gap) / rows;
@@ -491,8 +491,8 @@ function layout() {
   for (const i of cells) { const [r, c] = rc(i); r0 = Math.min(r0, r); r1 = Math.max(r1, r); c0 = Math.min(c0, c); c1 = Math.max(c1, c); }
   const wrap = $('boardWrap'), W = wrap.clientWidth, H = wrap.clientHeight, cols = c1 - c0 + 1, rows = r1 - r0 + 1;
   const gap = 1.08;
-  const m = 1.6;                                   // islands start small; zoom in with pinch or +
-  const fitT = Math.min(W / (cols * gap + m), H / (rows * gap + m), 190);
+  const m = Math.min(W, H) < 600 ? 0.35 : 1.1;    // on phones the island fills more of the screen
+  const fitT = Math.min(W / (cols * gap + m), H / (rows * gap + m), 330);
   const t = Math.round(Math.max(40, Math.min(700, fitT * cam.zoom)));   // pinch / + - to zoom
   view = {c0, r0, T: t, gap: Math.round(t * gap), W, H,
     ox: Math.round((W - cols * t * gap) / 2 + cam.px), oy: Math.round((H - rows * t * gap) / 2 + cam.py)};

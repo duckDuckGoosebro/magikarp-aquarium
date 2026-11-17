@@ -280,12 +280,3 @@ html,body{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
   #modalBox{max-height:94dvh;padding:10px}
   .choices .card{--card-w:112px;--card-h:160px}
 }
-
-/* ---------- an island is just a square with its grid ---------- */
-.tile.owned{background:none;box-shadow:0 4px 0 #0005;border-radius:4px;padding:0}
-.tile .ground{inset:0;border-radius:4px;background-image:none!important;animation:none}
-.tile.grass .ground{background:#5fb34a}
-.tile.water .ground{background:#3b8fd6}
-.tile.rock .ground{background:#a08466}
-.tile .slots{inset:calc(var(--T)*0.05)}
-.slot,.slot.empty{border:1px solid #ffffff59;background:#ffffff0d;border-radius:2px}
