@@ -6,6 +6,11 @@ PLAY
   Phone: on-screen pad walks, A talks, MAP opens the world map.
   Your lead Pokemon follows you. P (or PKMN button) = your party with stats and moves. Progress is saved in the browser.
 
+START: you begin with the redesigned FIGHTING / DARK Abra line (Abra Lv5, Kadabra Lv16, Alakazam Lv36).
+  Sprites: tools/make_abra_line.py recolours the real GBA sprites (battle front/back + overworld) into charcoal-violet shadow brawlers
+  with crimson armour and glowing red eyes; masters are in sprites/alakazam_fighting_dark/abra_line. Stats/moves: build_pokedata.py (CUSTOM).
+  Abra, Kadabra and Alakazam also wander around Birchfield.
+
 BATTLES (battle.js, data in pokedata.js)
   Walk through tall grass on routes: wild Pokemon jump out (levels go up route by route).
   You can also SEE wild Pokemon walking around on routes (Sword & Shield style): aggressive ones spot you (!) and attack,

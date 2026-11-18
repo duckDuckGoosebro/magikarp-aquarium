@@ -63,7 +63,10 @@ const name = p => DEX[p.dex].name;
 
 /* ---------- party / bag (saved with the game) ---------- */
 function persist() { try { localStorage.setItem(STORE, JSON.stringify(save)); } catch (e) {} }
-if (!save.party || !save.party.length) save.party = [makeMon(137, 5)];
+if (!save.party || !save.party.length) {                  // you start with the redesigned Fighting/Dark Abra line
+  save.party = [makeMon(63, 5), makeMon(64, 16), makeMon(65, 36)];
+  save.party[0].gender = 'M'; save.party[1].gender = 'M'; save.party[2].gender = 'M';
+}
 if (!save.bag) save.bag = {ball: 10, potion: 5};
 if (!save.box) save.box = [];
 for (const p of save.party.concat(save.box)) if (DEX[p.dex] && DEX[p.dex].female < 0) p.gender = null;
@@ -157,7 +160,7 @@ function render() {
   oval(64, 108, 66, 13, '#c8c8b8', '#e0e0d0');
   // Pokémon
   const P = Pb.mon, es = stats(E), ps = stats(P);
-  const ef = spr(`assets/battle/${E.dex}f.png?v=14`), pb = spr(`assets/battle/${P.dex}b.png?v=14`);
+  const ef = spr(`assets/battle/${E.dex}f.png?v=16`), pb = spr(`assets/battle/${P.dex}b.png?v=16`);
   const bob = Math.round(Math.sin(performance.now() / 260) * 1);
   if (ef.complete && V.eAlpha > 0) {
     g.globalAlpha = V.eAlpha; const s = 64 * V.eScale;
@@ -511,7 +514,7 @@ function renderParty() {
   PT.innerHTML = `<h2>YOUR POKéMON</h2><div class="hint">Tap a Pokémon (or press 1-6) to make it lead. P / Esc / tap here to close. Bag: ${save.bag.ball} Poké Balls, ${save.bag.potion} Potions. PC box: ${save.box.length}</div>` +
     save.party.map((p, i) => {
       const s = stats(p), a = expFor(p.dex, p.lvl), b = expFor(p.dex, p.lvl + 1);
-      return `<div class="card ${i === 0 ? 'lead' : ''}" data-i="${i}"><img src="assets/battle/${p.dex}f.png?v=14">
+      return `<div class="card ${i === 0 ? 'lead' : ''}" data-i="${i}"><img src="assets/battle/${p.dex}f.png?v=16">
         <div><b>${i + 1}. ${name(p).toUpperCase()}</b> Lv${p.lvl} ${DEX[p.dex].types.map(typeTag).join('')} ${p.status ? '<span class="ty" style="background:#c05050">' + p.status + '</span>' : ''}<br>
         HP ${p.hp}/${s[0]} · EXP ${p.exp - a}/${b - a} to next level
         <div class="stats">${STAT_NAMES.slice(1).map((n, k) => `<span>${n} ${s[k + 1]}</span>`).join('')}</div>
