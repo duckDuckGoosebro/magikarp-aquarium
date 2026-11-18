@@ -8,6 +8,8 @@ PLAY
 
 BATTLES (battle.js, data in pokedata.js)
   Walk through tall grass on routes: wild Pokemon jump out (levels go up route by route).
+  You can also SEE wild Pokemon walking around on routes (Sword & Shield style): bold ones spot you (!) and chase you,
+  shy ones run away. Touch one (or face it and press A) to battle it. Beaten or caught ones vanish and come back later.
   FIGHT (real moves, types, STAB, critical hits, stat changes, sleep/poison/burn/paralysis/confusion),
   BAG (Poke Balls to catch, Potions), PKMN (switch), RUN. Win = EXP, level ups, new moves and evolution.
   Up to 6 in the party, extras go to the PC box. Pokemon Center doors heal everyone, Mart doors refill the bag.

@@ -118,7 +118,7 @@ function draw() {
   const pf = Math.max(0, P.hp / ps[0]); $('bPh').style.width = pf * 100 + '%'; $('bPh').className = barClass(pf);
   $('bPt').textContent = Math.max(0, P.hp) + ' / ' + ps[0];
   const a = expFor(P.dex, P.lvl), b = expFor(P.dex, P.lvl + 1); $('bPx').style.width = Math.min(100, (P.exp - a) / Math.max(1, b - a) * 100) + '%';
-  $('bEsp').src = `assets/battle/${E.dex}f.png?v=11`; $('bPsp').src = `assets/battle/${P.dex}b.png?v=11`;
+  $('bEsp').src = `assets/battle/${E.dex}f.png?v=12`; $('bPsp').src = `assets/battle/${P.dex}b.png?v=12`;
 }
 
 /* messages: wait for a tap / key (tests can set window.BATTLE_FAST) */
@@ -289,7 +289,7 @@ async function evolutions() {
     const old = name(p), before = stats(p);
     await msg(`What? ${old} is evolving!`);
     p.dex = ev[0]; const after = stats(p); p.hp += after[0] - before[0];
-    $('bPsp').src = `assets/battle/${p.dex}b.png?v=11`;
+    $('bPsp').src = `assets/battle/${p.dex}b.png?v=12`;
     await msg(`Congratulations! Your ${old} evolved into ${name(p)}!`);
   }
 }
@@ -393,6 +393,14 @@ async function wildBattle(dex, lvl) {
   return result;
 }
 window.wildBattle = wildBattle;
+// battles with the Pokemon you can see walking around: beaten or caught ones vanish for a while
+window.symbolBattle = async (o, mapId) => {
+  const w = WILD[mapId] || {min: 3, max: 5};
+  const res = await wildBattle(o.dex, o.lvl || (w.min + rnd(w.max - w.min + 1)));
+  o.chasing = false; o.alert = 0;
+  if (res === 'won' || res === 'caught') { o.gone = true; o.respawn = Date.now() + 45000; o.lvl = w.min + rnd(w.max - w.min + 1); }
+  else o.cool = 240;                              // ran away: it leaves you alone for a few seconds
+};
 
 /* ---------- party / stats screen (P key, PKMN button) ---------- */
 const PT = $('party');
@@ -401,7 +409,7 @@ function renderParty() {
   PT.innerHTML = `<h2>YOUR POKéMON</h2><div class="hint">Tap a Pokémon (or press 1-6) to make it lead. P / Esc / tap here to close. Bag: ${save.bag.ball} Poké Balls, ${save.bag.potion} Potions. PC box: ${save.box.length}</div>` +
     save.party.map((p, i) => {
       const s = stats(p), a = expFor(p.dex, p.lvl), b = expFor(p.dex, p.lvl + 1);
-      return `<div class="card ${i === 0 ? 'lead' : ''}" data-i="${i}"><img src="assets/battle/${p.dex}f.png?v=11">
+      return `<div class="card ${i === 0 ? 'lead' : ''}" data-i="${i}"><img src="assets/battle/${p.dex}f.png?v=12">
         <div><b>${i + 1}. ${name(p).toUpperCase()}</b> Lv${p.lvl} ${DEX[p.dex].types.map(typeTag).join('')} ${p.status ? '<span class="ty" style="background:#c05050">' + p.status + '</span>' : ''}<br>
         HP ${p.hp}/${s[0]} · EXP ${p.exp - a}/${b - a} to next level
         <div class="stats">${STAT_NAMES.slice(1).map((n, k) => `<span>${n} ${s[k + 1]}</span>`).join('')}</div>

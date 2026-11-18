@@ -10,7 +10,7 @@ const SIDE = {up: 'n', down: 's', left: 'w', right: 'e'};
 const IMG = {};
 function img(src) {
   if (IMG[src]) return IMG[src];
-  const im = new Image(); im.src = src + '?v=11'; im.ready = false;
+  const im = new Image(); im.src = src + '?v=12'; im.ready = false;
   im.onload = () => { im.ready = true; }; IMG[src] = im; return im;
 }
 const whenReady = list => Promise.all(list.map(im => im.ready ? 1 : new Promise(r => { im.addEventListener('load', r); im.addEventListener('error', r); if (im.complete && im.naturalWidth) { im.ready = true; r(); } })));
@@ -50,12 +50,23 @@ function rt(mid) {
   const m = WORLD.maps[mid];
   const mk = (o, kind) => ({...o, kind, hx: o.x, hy: o.y, dir: 'down', p: 0, moving: false, wait: 40 + Math.random() * 200, parity: 0});
   RT[mid] = {npcs: m.npcs.map(o => mk(o, 'npc')), mons: m.mons.map(o => mk(o, 'mon'))};
+  const W = typeof WILD !== 'undefined' && WILD[mid];
+  if (W) {                                    // wild Pokemon you can see walking around (Sword & Shield style)
+    const taken = new Set(RT[mid].mons.map(o => o.x + ',' + o.y));
+    for (let k = 0, tries = 0; k < 5 && tries < 400; tries++) {
+      const x = 2 + Math.floor(Math.random() * (m.w - 4)), y = 2 + Math.floor(Math.random() * (m.h - 4));
+      if (m.solid[y][x] === '1' || taken.has(x + ',' + y)) continue;
+      taken.add(x + ',' + y); k++;
+      RT[mid].mons.push(mk({x, y, dex: W.mons[Math.floor(Math.random() * W.mons.length)]}, 'mon'));
+    }
+    for (const o of RT[mid].mons) { o.wild = true; o.mood = Math.random() < 0.5 ? 'bold' : 'shy'; o.lvl = W.min + Math.floor(Math.random() * (W.max - W.min + 1)); }
+  }
   return RT[mid];
 }
 const solidAt = (m, x, y) => x < 0 || y < 0 || x >= m.w || y >= m.h || m.solid[y][x] === '1';
 function entityAt(x, y, except) {
   for (const o of [...view.npcs, ...view.mons]) {
-    if (o === except) continue;
+    if (o === except || o.gone) continue;
     if ((o.x === x && o.y === y) || (o.moving && o.tx === x && o.ty === y)) return o;
   }
   if (except !== P && ((P.x === x && P.y === y) || (P.moving && P.tx === x && P.ty === y))) return P;
@@ -103,12 +114,13 @@ function interact() {
   const o = entityAt(x, y, P);
   if (o && o !== P) {
     o.dir = OPP[P.dir]; o.wait = 150;
+    if (o.wild) return touchWild(o);
     if (o.kind === 'mon') return say(`${WORLD.names[o.dex] || 'Pokémon'}: ${['Bzzt!', 'Pika!', 'Rawr!', 'Gru gru!', 'Kyuu!'][o.dex % 5]}\n(A Pokémon is wandering around.)`);
     return say("What's up austin-o!\n" + o.text);        // every person greets you first
   }
   const s = M.signs.find(s => s.x === x && s.y === y) || M.doors.find(d => d.x === x && d.y === y);
   if (s) { const extra = window.onDoor ? onDoor(s.text) : ''; return say(s.text + (extra ? '\n' + extra : '')); }
-  if (F.x === x && F.y === y) say(`${(window.DEX && DEX[F.dex] ? DEX[F.dex].name : WORLD.names[F.dex])} is following you!`);
+  if (F.x === x && F.y === y) say(`${(typeof DEX !== 'undefined' && DEX[F.dex] ? DEX[F.dex].name : WORLD.names[F.dex])} is following you!`);
 }
 
 /* ---------- input ---------- */
@@ -142,7 +154,7 @@ function toggleMap() {
   if (w.style.display === 'flex') { w.style.display = 'none'; return; }
   w.style.display = 'flex'; drawWorldMap(); held.length = 0;
 }
-const OVIMG = new Image(); OVIMG.src = 'assets/overview.png?v=11';
+const OVIMG = new Image(); OVIMG.src = 'assets/overview.png?v=12';
 function drawWorldMap() {
   const c = $('wmc'), g = c.getContext('2d'), O = WORLD.overview;
   c.width = O.w; c.height = O.h; g.imageSmoothingEnabled = false;
@@ -205,9 +217,15 @@ function tryMove(o, d, isPlayer) {
     enter(c.to, at[0], at[1], d);
     return false;
   }
-  if (solidAt(M, nx, ny) || entityAt(nx, ny, o)) return false;
+  const hit = entityAt(nx, ny, o);
+  if (isPlayer && hit && hit.wild) { touchWild(hit); return false; }
+  if (solidAt(M, nx, ny) || hit) return false;
   o.tx = nx; o.ty = ny; o.moving = true; o.p = 0;
   return true;
+}
+function touchWild(o) {
+  if (window.BATTLE_OPEN || !window.symbolBattle || o.gone || o.cool > 0) return;
+  held.length = 0; o.dir = OPP[P.dir] || o.dir; symbolBattle(o, cur);
 }
 function finishStep(o) { o.x = o.tx; o.y = o.ty; o.moving = false; o.p = 0; o.parity ^= 1; }
 const pos = o => o.moving ? [o.x * T + DIRS[o.dir][0] * o.p, o.y * T + DIRS[o.dir][1] * o.p] : [o.x * T, o.y * T];
@@ -225,11 +243,35 @@ function update() {
   }
   if (!M) return;
   for (const o of [...view.npcs, ...view.mons]) {
-    if (o.moving) { o.p += SPD; if (o.p >= T) finishStep(o); continue; }
+    if (o.gone) {                                                       // beaten or caught: comes back after a while
+      if (Date.now() > o.respawn && !entityAt(o.hx, o.hy, o) && Math.abs(P.x - o.hx) + Math.abs(P.y - o.hy) > 6) { o.gone = false; o.x = o.hx; o.y = o.hy; o.moving = false; }
+      continue;
+    }
+    if (o.cool > 0) o.cool--;
+    if (o.moving) { o.p += o.wild && o.chasing ? SPD * 1.25 : SPD; if (o.p >= T) finishStep(o); continue; }
     if (o.kind === 'npc' && !o.wander) continue;
+    let d = null;
+    if (o.wild && !talking) {
+      const ddx = P.x - o.x, ddy = P.y - o.y, dist = Math.abs(ddx) + Math.abs(ddy);
+      if (dist <= 5 && o.cool <= 0) {
+        if (!o.chasing) { o.chasing = true; o.alert = 45; o.wait = 25; }   // it noticed you: "!"
+        if (o.alert > 0) o.alert--;
+        if (dist === 1 && o.mood === 'bold' && !P.moving) { o.dir = Math.abs(ddx) ? (ddx > 0 ? 'right' : 'left') : (ddy > 0 ? 'down' : 'up'); touchWild(o); continue; }
+        if (--o.wait > 0) continue;
+        o.wait = o.mood === 'bold' ? 10 : 18;
+        const toward = Math.abs(ddx) > Math.abs(ddy) ? (ddx > 0 ? 'right' : 'left') : (ddy > 0 ? 'down' : 'up');
+        d = o.mood === 'bold' ? toward : OPP[toward];
+        const [dx, dy] = DIRS[d], nx = o.x + dx, ny = o.y + dy;
+        o.dir = d;
+        if (nx < 2 || ny < 2 || nx >= M.w - 2 || ny >= M.h - 2 || solidAt(M, nx, ny) || entityAt(nx, ny, o)) continue;
+        o.tx = nx; o.ty = ny; o.moving = true; o.p = 0; o.hx = o.x; o.hy = o.y;
+        continue;
+      }
+      o.chasing = false;
+    }
     if (talking || --o.wait > 0) continue;
     o.wait = 60 + Math.random() * 220;
-    const d = Object.keys(DIRS)[Math.floor(Math.random() * 4)], [dx, dy] = DIRS[d];
+    d = Object.keys(DIRS)[Math.floor(Math.random() * 4)]; const [dx, dy] = DIRS[d];
     const nx = o.x + dx, ny = o.y + dy;
     o.dir = d;
     if (Math.abs(nx - o.hx) > 3 || Math.abs(ny - o.hy) > 3 || nx < 2 || ny < 2 || nx >= M.w - 2 || ny >= M.h - 2) continue;
@@ -265,7 +307,17 @@ function draw() {
   else { fxp = F.x * T; fyp = F.y * T; }
   if (window.leadMon && leadMon()) F.dex = leadMon().dex;
   list.push({y: fyp + 15, f: () => drawMon(F.dex, F.dir, P.moving ? (frame >> 3) : 0, fxp, fyp)});
-  for (const o of view.mons) { const [x, y] = pos(o); list.push({y: y + 15, f: () => drawMon(o.dex, o.dir, o.moving ? (frame >> 3) : (frame >> 5), x, y)}); }
+  for (const o of view.mons) {
+    if (o.gone) continue;
+    const [x, y] = pos(o);
+    list.push({y: y + 15, f: () => {
+      drawMon(o.dex, o.dir, o.moving ? (frame >> 3) : (frame >> 5), x, y);
+      if (o.alert > 0 || (o.chasing && o.mood === 'bold' && frame % 40 < 20)) {          // exclamation bubble
+        ctx.fillStyle = '#fff'; ctx.fillRect(x + 4, y - 19, 8, 11); ctx.fillStyle = '#d02020';
+        ctx.fillRect(x + 7, y - 17, 2, 5); ctx.fillRect(x + 7, y - 11, 2, 2);
+      }
+    }});
+  }
   for (const o of view.npcs) { const [x, y] = pos(o); list.push({y: y + 15, f: () => drawTrainer(o.sheet, o.dir, o.moving, o.parity, x, y)}); }
   list.push({y: ppy + 16, f: () => drawTrainer(P.sheet, P.dir, P.moving, P.parity, ppx, ppy)});
   list.sort((a, b) => a.y - b.y).forEach(o => o.f());
