@@ -10,7 +10,7 @@ const SIDE = {up: 'n', down: 's', left: 'w', right: 'e'};
 const IMG = {};
 function img(src) {
   if (IMG[src]) return IMG[src];
-  const im = new Image(); im.src = src + '?v=5'; im.ready = false;
+  const im = new Image(); im.src = src + '?v=6'; im.ready = false;
   im.onload = () => { im.ready = true; }; IMG[src] = im; return im;
 }
 const whenReady = list => Promise.all(list.map(im => im.ready ? 1 : new Promise(r => { im.addEventListener('load', r); im.addEventListener('error', r); if (im.complete && im.naturalWidth) { im.ready = true; r(); } })));
@@ -103,7 +103,7 @@ function interact() {
   if (o && o !== P) {
     o.dir = OPP[P.dir]; o.wait = 150;
     if (o.kind === 'mon') return say(`${WORLD.names[o.dex] || 'Pokémon'}: ${['Bzzt!', 'Pika!', 'Rawr!', 'Gru gru!', 'Kyuu!'][o.dex % 5]}\n(A Pokémon is wandering around.)`);
-    return say(o.text);
+    return say("What's up austin-o!\n" + o.text);        // every person greets you first
   }
   const s = M.signs.find(s => s.x === x && s.y === y) || M.doors.find(d => d.x === x && d.y === y);
   if (s) return say(s.text);
@@ -139,7 +139,7 @@ function toggleMap() {
   if (w.style.display === 'flex') { w.style.display = 'none'; return; }
   w.style.display = 'flex'; drawWorldMap(); held.length = 0;
 }
-const OVIMG = new Image(); OVIMG.src = 'assets/overview.png?v=5';
+const OVIMG = new Image(); OVIMG.src = 'assets/overview.png?v=6';
 function drawWorldMap() {
   const c = $('wmc'), g = c.getContext('2d'), O = WORLD.overview;
   c.width = O.w; c.height = O.h; g.imageSmoothingEnabled = false;
