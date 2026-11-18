@@ -8,7 +8,7 @@ How it plays
   Buy more islands next to yours (you choose grass, water or rock).
   Terracards-style rules: Wells make Water (10 each, water islands 2); every land crop drinks Water each turn (Apple Tree 2, water crops 0; shown on the card)
   or does nothing. Same crops side by side make +1. Wells and Fences cost 1 coin upkeep a turn.
-  Taxes every 10 turns; coins below zero at the end of a day ends the run. Card picks every 3 turns,
+  Taxes every 10 turns; coins below zero at the end of a day ends the run. A card offer EVERY turn, a Card Shop (buy cards with coins, restocks each turn), and a supply crate tops your hand up to 4 if your deck runs dry,
   3 free rerolls to start and +1 for each turn you don't reroll. Starter deck (like Terracards): 6 Leek Patch, 2 Miltank, 4 Well, 2 Fence; day one opens with
   2 Leek, 1 Well, 1 Fence, 1 Miltank. Wells make 10 Water; Miltank drinks 3, other Pokemon 1.
   Tap the exact square to plant or build. Pokemon must go in a Fence (2 per fence) and walk inside it.

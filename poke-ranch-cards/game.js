@@ -2,7 +2,7 @@
    Start with ONE island tile. Every land tile has 12 slots: plant crops, house Pokémon, build buildings.
    Things on the same tile help each other. Sell goods, pay taxes every 10 turns, buy more land.
    Terracards-style rules: Wells make Water, every crop needs 1 Water a turn to work, matching crops side by side
-   make +1, Wells and Fences cost upkeep, Pokémon live in Fences, card picks every 3 turns with free rerolls. */
+   make +1, Wells and Fences cost upkeep, Pokémon live in Fences, a card offer every turn with free rerolls, a Card Shop, and a supply crate so your hand is never empty. */
 'use strict';
 
 const G = 11;                       // world grid G x G, the island starts in the middle
@@ -129,7 +129,7 @@ const BADGES = {
 };
 
 const RENT = [120, 350, 700, 1200, 1900, 2800, 4000, 5500, 7300, 9500];   // taxes, every TAX_EVERY turns
-const TAX_EVERY = 10, PICK_EVERY = 3;
+const TAX_EVERY = 10, PICK_EVERY = 1;
 const WILD = [16, 19, 10, 13, 161, 263, 396, 399, 403, 531, 162];   // wild Pokémon that wander by
 
 /* ---------- state ---------- */
@@ -152,7 +152,7 @@ function newRun() {
   const firstHand = ['wheat', 'wheat', 'well', 'fence', 'miltank'].map(mk);
   const deck = ['wheat', 'wheat', 'wheat', 'wheat', 'miltank', 'well', 'well', 'well', 'fence'].map(mk);
   S = {
-    turn: 1, coins: 20, energy: 3, freeRerolls: 3, rerolledThisTurn: false, deck: shuffle(deck), hand: firstHand, discard: [], board,
+    turn: 1, coins: 20, energy: 3, freeRerolls: 3, rerolledThisTurn: false, deck: shuffle(deck), hand: firstHand, discard: [], shop: [], board,
     stock: Object.fromEntries(RES_KEYS.map(k => [k, 0])),
     price: Object.fromEntries(RES_KEYS.map(k => [k, 1])),
     prevPrice: Object.fromEntries(RES_KEYS.map(k => [k, 1])),
@@ -316,9 +316,20 @@ function estimateIncome() {
 const allMons = () => { const r = []; for (const i of owned()) for (const o of occs(i)) if (kindOf(o) === 'mon') r.push([i, o]); return r.sort((a, b) => a[1].uid - b[1].uid); };
 
 /* ---------- turn flow ---------- */
+const CARD_PRICE = {C: 8, U: 16, R: 30};
+const SUPPLIES = ['wheat', 'basket', 'fence', 'well', 'notes'];
+function rollShop() { S.shop = rollCards(4).map(id => ({id, sold: false})); }
 function startTurn(first) {
   S.energy = energyMax();
   if (!first) draw(drawN());   // day one uses the fixed starter hand
+  // Terracards deck rule: you always have something to play. When your deck + discard are nearly used up
+  // (placed crops, animals and buildings stay on the board), a supply crate fills your hand back up to 4 cards.
+  if (!first && S.hand.length + S.deck.length + S.discard.length < 5) {
+    let n = 0;
+    while (S.hand.length < 4) { S.hand.push(mk(SUPPLIES[(S.turn + n++) % SUPPLIES.length])); }
+    if (n) log(`A supply crate arrived: +${n} basic card${n > 1 ? 's' : ''}.`, 'gd');
+  }
+  rollShop();
   if (!first) log(`— Turn ${S.turn} —`);
   render();
 }
@@ -822,6 +833,21 @@ function showDraft(next) {
   $('reroll').onclick = () => { if (S.freeRerolls) S.freeRerolls--; else { S.coins -= S.rerollCost; S.rerollCost += 2; } S.rerolledThisTurn = true; render(); showDraft(next); };
   $('skip').onclick = () => { S.coins += 5; render(); next(); };
 }
+function openShop() {
+  if (busy || S.over) return;
+  const row = () => S.shop.map((o, k) => {
+    const price = Math.round(CARD_PRICE[CARDS[o.id].rar] * (1 + Math.floor(S.turn / 15) * 0.25));
+    return `<div class="shopitem ${o.sold ? 'sold' : ''}" data-k="${k}">${cardHTML(o.id)}<button class="btn small" ${o.sold || S.coins < price ? 'disabled' : ''}>${o.sold ? 'Sold' : price + ' coins'}</button></div>`;
+  }).join('');
+  openModal(`<h2>Card Shop</h2><p>You have <b>${S.coins}</b> coins. Bought cards go straight to your hand. The shop restocks every turn.</p>
+    <div class="choices">${row()}</div><div class="row-btns"><button class="btn grey" id="shopClose">Close</button></div>`);
+  document.querySelectorAll('#modalBox .shopitem button').forEach(b => b.onclick = () => {
+    const k = +b.parentNode.dataset.k, o = S.shop[k], price = Math.round(CARD_PRICE[CARDS[o.id].rar] * (1 + Math.floor(S.turn / 15) * 0.25));
+    if (o.sold || S.coins < price) return;
+    S.coins -= price; o.sold = true; S.hand.push(mk(o.id)); log(`Bought ${CARDS[o.id].name} for ${price} coins.`, 'gd'); render(); openShop();
+  });
+  $('shopClose').onclick = closeModal;
+}
 function showBadge(due, next) {
   const pool = shuffle(Object.keys(BADGES).filter(b => !S.badges.includes(b))).slice(0, 3);
   if (!pool.length) return next();
@@ -865,7 +891,8 @@ function showHelp() {
     <li><b>Starter deck</b> (like Terracards): 6 Leek Patch, 2 Miltank, 4 Well, 2 Fence. Day one: 2 Leek, 1 Well, 1 Fence, 1 Miltank.</li>
     <li>Matching crops <b>side by side</b> make +1. Pokémon live in <b>Fences</b> (2 each).</li>
     <li>Wells and Fences cost <b>1 coin upkeep</b> a turn.</li>
-    <li>Every <b>10 turns</b> pay taxes; if your coins go below zero the run ends. Each payment earns a <b>badge</b>. Every 3 turns you pick a new card (free rerolls build up).</li></ul></div>
+    <li><b>Deck:</b> placed crops, animals and buildings stay on the board, so your deck shrinks. A trainer offers a new card <b>every turn</b>, the <b>Card Shop</b> sells cards for coins, and if you run dry a supply crate fills your hand.</li>
+    <li>Every <b>10 turns</b> pay taxes; if your coins go below zero the run ends. Each payment earns a <b>badge</b>. Every turn a trainer offers you a new card (free rerolls build up).</li></ul></div>
     <div class="row-btns"><button class="btn" id="ok">Let's farm!</button></div>`);
   $('ok').onclick = closeModal;
 }
@@ -887,6 +914,7 @@ $('info').addEventListener('click', e => { const b = e.target.closest('[data-rel
 $('hand').addEventListener('click', e => { const c = e.target.closest('.card'); if (c) selectCard(+c.dataset.h); });
 $('market').addEventListener('change', e => { const k = e.target.dataset.hold; if (k) { S.hold[k] = e.target.checked; render(); } });
 $('endBtn').onclick = () => { closeSheets(); endTurn(); };
+$('shopBtn').onclick = () => { closeSheets(); openShop(); };
 $('helpBtn').onclick = showHelp;
 document.addEventListener('keydown', e => {
   const open = !$('modal').classList.contains('hidden');
