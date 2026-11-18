@@ -9,8 +9,9 @@ const rnd = n => Math.floor(Math.random() * n);
 /* ---------- styles ---------- */
 const css = document.createElement('style');
 css.textContent = `
-#battle, #party { position: fixed; inset: 0; z-index: 8; display: none; font-family: var(--font); color: #303030; user-select: none; }
-#battle { background: linear-gradient(#f8f8e8 0 8%, #c8e8a0 8% 52%, #98d070 52% 72%, #f8f8f8 72%); }
+#party { position: fixed; inset: 0; z-index: 8; display: none; font-family: var(--font); color: #303030; user-select: none; }
+#battle { position: fixed; inset: 0; z-index: 8; display: none; background: #000; align-items: center; justify-content: center; }
+#battle canvas { width: min(100vw, 150vh); height: auto; image-rendering: pixelated; touch-action: none; }
 #battle .plat { position: absolute; border-radius: 50%; background: #78b858; box-shadow: inset 0 -6px 0 #589840; }
 #battle img.mon { position: absolute; image-rendering: pixelated; width: min(30vw, 30vh, 230px); transition: transform .25s, opacity .3s; }
 #battle .box { position: absolute; background: #f8f8d8; border: 4px solid #506850; border-radius: 10px 2px 10px 2px; padding: 8px 12px; font-size: clamp(9px, 1.6vw, 13px); width: min(44vw, 300px); box-shadow: 4px 4px 0 #30483088; }
@@ -28,16 +29,6 @@ css.textContent = `
 #bMenu button:focus, #bMenu button:hover, #party button:focus, #party button:hover { border-color: #e05040; outline: none; background: #fff8e0; }
 #bMenu button small { display: block; font-size: .75em; color: #707070; margin-top: 3px; }
 #bMenu button:disabled { opacity: .45; }
-@media (orientation: portrait) {
-  #battle .plat.e { right: 6% !important; top: 27% !important; width: 52vw !important; height: 6vh !important; }
-  #battle .plat.p { left: 2% !important; top: 57% !important; width: 58vw !important; height: 6vh !important; }
-  #bEsp { right: 14% !important; top: 13% !important; width: 36vw !important; }
-  #bPsp { left: 8% !important; top: 38% !important; width: 44vw !important; }
-  #battle .box.pb { top: 64% !important; right: 3% !important; width: 58vw !important; }
-  #battle .box.eb { width: 58vw !important; }
-  #bMsg { height: 25%; }
-  #bMenu { width: calc(100vw - 16px); }
-}
 #party { background: #405880f4; overflow: auto; padding: 14px; box-sizing: border-box; color: #fff; }
 #party h2 { font-size: 14px; margin: 4px 0 12px; } #party .hint { font-size: 9px; opacity: .8; margin-bottom: 10px; }
 #party .card { background: #f8f8f8; color: #303030; border-radius: 10px; padding: 10px; margin-bottom: 10px; display: grid; grid-template-columns: 72px 1fr; gap: 10px; font-size: 10px; line-height: 1.8; }
@@ -60,7 +51,7 @@ function stats(p) {
   return DEX[p.dex].base.map((b, i) => i === 0 ? Math.floor((2 * b + p.iv) * p.lvl / 100) + p.lvl + 10 : Math.floor((2 * b + p.iv) * p.lvl / 100) + 5);
 }
 function makeMon(dex, lvl, iv) {
-  const p = {dex, lvl, iv: iv == null ? 15 : iv, exp: expFor(dex, lvl), moves: [], status: null, sleep: 0};
+  const p = {dex, lvl, iv: iv == null ? 15 : iv, exp: expFor(dex, lvl), moves: [], status: null, sleep: 0, gender: DEX[dex].female < 0 ? null : Math.random() < DEX[dex].female ? 'F' : 'M'};
   const known = [];
   for (const [l, m] of DEX[dex].learn) if (l <= lvl && !known.includes(m)) known.push(m);
   p.moves = known.slice(-4).map(id => ({id, pp: MOVES[id].pp}));
@@ -75,6 +66,7 @@ function persist() { try { localStorage.setItem(STORE, JSON.stringify(save)); } 
 if (!save.party || !save.party.length) save.party = [makeMon(137, 5)];
 if (!save.bag) save.bag = {ball: 10, potion: 5};
 if (!save.box) save.box = [];
+for (const p of save.party.concat(save.box)) if (DEX[p.dex] && DEX[p.dex].female < 0) p.gender = null;
 persist();
 window.leadMon = () => save.party.find(p => p.hp > 0) || save.party[0];
 function healAll() { for (const p of save.party) { p.hp = stats(p)[0]; p.status = null; p.sleep = 0; for (const m of p.moves) m.pp = MOVES[m.id] ? MOVES[m.id].pp : 10; } persist(); }
@@ -100,68 +92,180 @@ window.onStep = (mapId, x, y) => {
   }
 };
 
-/* ---------- battle screen ---------- */
+/* ---------- battle screen: drawn like the GBA games, on a 240x160 canvas scaled up ---------- */
 const B = $('battle');
-B.innerHTML = `<div class="plat e" style="right:8%;top:30%;width:34vw;height:7vh"></div><div class="plat p" style="left:6%;top:60%;width:38vw;height:8vh"></div>
-  <img class="mon" id="bEsp" style="right:12%;top:6%"><img class="mon" id="bPsp" style="left:10%;top:34%">
-  <div class="box eb" style="left:4%;top:5%"><b id="bEn"></b><span id="bEl"></span><div class="bar"><i id="bEh"></i></div></div>
-  <div class="box pb" style="right:4%;top:46%"><b id="bPn"></b><span id="bPl"></span><div class="bar"><i id="bPh"></i></div><div class="hpt" id="bPt"></div><div class="xbar"><i id="bPx"></i></div></div>
-  <div id="bMsg"></div><div id="bMenu"></div>`;
+B.innerHTML = '<canvas id="bCan"></canvas>';
+const CAN = $('bCan'), K = 3;                     // drawn at 3x the GBA size so the text stays sharp
+CAN.width = 240 * K; CAN.height = 160 * K;
+const g = CAN.getContext('2d');
 let E = null, Pb = null, Eb = null;               // the wild Pokémon and the two battlers (with their stat changes)
 const battler = mon => ({mon, st: {atk: 0, def: 0, spa: 0, spd: 0, spe: 0, acc: 0, eva: 0}, conf: 0, flinch: false});
-function barClass(p) { return p > .5 ? '' : p > .2 ? 'mid' : 'low'; }
-function draw() {
-  const P = Pb.mon, es = stats(E), ps = stats(P);
-  $('bEn').innerHTML = DEX[E.dex].name.toUpperCase() + (E.status ? `<span class="st" style="float:none">${E.status}</span>` : ''); $('bEl').textContent = 'Lv' + E.lvl;
-  const ef = Math.max(0, E.hp / es[0]); $('bEh').style.width = ef * 100 + '%'; $('bEh').className = barClass(ef);
-  $('bPn').innerHTML = name(P).toUpperCase() + (P.status ? `<span class="st" style="float:none">${P.status}</span>` : ''); $('bPl').textContent = 'Lv' + P.lvl;
-  const pf = Math.max(0, P.hp / ps[0]); $('bPh').style.width = pf * 100 + '%'; $('bPh').className = barClass(pf);
-  $('bPt').textContent = Math.max(0, P.hp) + ' / ' + ps[0];
-  const a = expFor(P.dex, P.lvl), b = expFor(P.dex, P.lvl + 1); $('bPx').style.width = Math.min(100, (P.exp - a) / Math.max(1, b - a) * 100) + '%';
-  $('bEsp').src = `assets/battle/${E.dex}f.png?v=12`; $('bPsp').src = `assets/battle/${P.dex}b.png?v=12`;
-}
+const V = {text: '', mode: 'text', items: [], cursor: 0, back: false, eAlpha: 1, eScale: 1, eHP: 0, pHP: 0, pEXP: 0, hits: [], t0: 0};
+const SPR = {};
+function spr(src) { if (!SPR[src]) { const im = new Image(); im.src = src; SPR[src] = im; } return SPR[src]; }
+const FONT = n => `${n * K}px "Pixelify Sans", "Press Start 2P", monospace`;
+const C = {ink: '#404040', shadow: '#d8d0b0', white: '#f8f8f8', dark: '#283040'};
 
-/* messages: wait for a tap / key (tests can set window.BATTLE_FAST) */
+function rr(x, y, w, h, r, fill, stroke, lw) {        // rounded box in GBA units
+  g.beginPath(); g.roundRect(x * K, y * K, w * K, h * K, r * K);
+  if (fill) { g.fillStyle = fill; g.fill(); }
+  if (stroke) { g.lineWidth = (lw || 1) * K; g.strokeStyle = stroke; g.stroke(); }
+}
+function txt(s, x, y, size, col, shadow, align) {
+  g.font = FONT(size); g.textAlign = align || 'left'; g.textBaseline = 'top';
+  if (shadow) { g.fillStyle = shadow; g.fillText(s, (x + .6) * K, (y + .6) * K); }
+  g.fillStyle = col; g.fillText(s, x * K, y * K);
+}
+function genderMark(p, x, y) {
+  if (!p.gender) return;
+  txt(p.gender === 'F' ? '♀' : '♂', x, y, 9, p.gender === 'F' ? '#f06070' : '#4080f0', C.shadow);
+}
+function hpBar(x, y, w, frac) {
+  rr(x - 13, y - 1, w + 15, 6, 2, '#484848');
+  txt('HP', x - 12, y - 1.6, 6, '#f8b030');
+  g.fillStyle = '#e8e8e8'; g.fillRect(x * K, y * K, w * K, 3 * K);
+  g.fillStyle = frac > .5 ? '#70f8a8' : frac > .2 ? '#f8e038' : '#f85838';
+  g.fillRect(x * K, y * K, Math.max(0, w * frac) * K, 3 * K);
+  g.fillStyle = frac > .5 ? '#58d080' : frac > .2 ? '#c8a808' : '#a84048';
+  g.fillRect(x * K, (y + 2) * K, Math.max(0, w * frac) * K, 1 * K);
+}
+function statusTag(p, x, y) {
+  if (!p.status) return;
+  const col = {PAR: '#c0a000', PSN: '#a040a0', BRN: '#e05030', SLP: '#808080'}[p.status] || '#888';
+  rr(x, y, 18, 7, 2, col); txt(p.status, x + 9, y + .3, 6, '#fff', null, 'center');
+}
+function wrap(s, w, size) {
+  g.font = FONT(size); const out = [];
+  for (const para of s.split('\n')) {
+    let line = '';
+    for (const word of para.split(' ')) {
+      const t = line ? line + ' ' + word : word;
+      if (g.measureText(t).width / K > w && line) { out.push(line); line = word; } else line = t;
+    }
+    out.push(line);
+  }
+  return out;
+}
+function render() {
+  if (!window.BATTLE_OPEN || !E) return;
+  g.imageSmoothingEnabled = false;
+  // background: pale sky, two oval platforms
+  g.fillStyle = '#f8f8f0'; g.fillRect(0, 0, 240 * K, 112 * K);
+  g.fillStyle = '#e8f0d0'; g.fillRect(0, 48 * K, 240 * K, 64 * K);
+  const oval = (cx, cy, rx, ry, a, b) => { g.beginPath(); g.ellipse(cx * K, cy * K, rx * K, ry * K, 0, 0, Math.PI * 2); g.fillStyle = a; g.fill(); g.beginPath(); g.ellipse(cx * K, (cy - 1) * K, (rx - 4) * K, (ry - 3) * K, 0, 0, Math.PI * 2); g.fillStyle = b; g.fill(); };
+  oval(176, 70, 60, 12, '#c8c8b8', '#e0e0d0');
+  oval(64, 108, 66, 13, '#c8c8b8', '#e0e0d0');
+  // Pokémon
+  const P = Pb.mon, es = stats(E), ps = stats(P);
+  const ef = spr(`assets/battle/${E.dex}f.png?v=14`), pb = spr(`assets/battle/${P.dex}b.png?v=14`);
+  const bob = Math.round(Math.sin(performance.now() / 260) * 1);
+  if (ef.complete && V.eAlpha > 0) {
+    g.globalAlpha = V.eAlpha; const s = 64 * V.eScale;
+    g.drawImage(ef, (144 + (64 - s) / 2) * K, (6 + (64 - s)) * K, s * K, s * K); g.globalAlpha = 1;
+  }
+  if (pb.complete) g.drawImage(pb, 40 * K, (52 + bob) * K, 64 * K, 64 * K);
+  // smooth HP / EXP bars
+  V.eHP += (E.hp - V.eHP) * .2; V.pHP += (P.hp - V.pHP) * .2;
+  const a = expFor(P.dex, P.lvl), b = expFor(P.dex, P.lvl + 1), xf = Math.min(1, (P.exp - a) / Math.max(1, b - a)); V.pEXP += (xf - V.pEXP) * .2;
+  // enemy box
+  rr(13, 15, 100, 30, 6, '#f8f8d8', '#405058', 2); rr(15, 17, 96, 26, 4, null, '#a8b0a0', 1);
+  txt(name(E).toUpperCase(), 20, 18, 9, C.ink, C.shadow); genderMark(E, 20 + g.measureText(name(E).toUpperCase()).width / K + 2, 18);
+  txt('Lv' + E.lvl, 106, 18, 9, C.ink, C.shadow, 'right'); statusTag(E, 20, 36);
+  hpBar(58, 32, 48, Math.max(0, V.eHP / es[0]));
+  // player box
+  rr(126, 72, 106, 38, 6, '#f8f8d8', '#405058', 2); rr(128, 74, 102, 34, 4, null, '#a8b0a0', 1);
+  txt(name(P).toUpperCase(), 134, 75, 9, C.ink, C.shadow); genderMark(P, 134 + g.measureText(name(P).toUpperCase()).width / K + 2, 75);
+  txt('Lv' + P.lvl, 224, 75, 9, C.ink, C.shadow, 'right'); statusTag(P, 134, 95);
+  hpBar(174, 88, 48, Math.max(0, V.pHP / ps[0]));
+  txt(`${Math.max(0, Math.round(V.pHP))}/ ${ps[0]}`, 224, 93, 9, C.ink, C.shadow, 'right');
+  g.fillStyle = '#404040'; g.fillRect(150 * K, 105 * K, 74 * K, 2 * K);
+  g.fillStyle = '#40c8f8'; g.fillRect(150 * K, 105 * K, 74 * V.pEXP * K, 2 * K);
+  txt('EXP', 134, 102.5, 6, '#f8b030');
+  // bottom: text box (and menu box)
+  V.hits = [];
+  g.fillStyle = '#284860'; g.fillRect(0, 112 * K, 240 * K, 48 * K);
+  const textW = V.mode === 'main' ? 118 : V.mode === 'text' ? 228 : 0;
+  if (textW) {
+    rr(2, 114, textW + 6, 44, 4, '#304868', '#c8a050', 2); rr(4, 116, textW + 2, 40, 3, null, '#887050', 1);
+    wrap(V.text, textW - 10, 10).slice(V.page * 2, V.page * 2 + 2).forEach((l, i) => txt(l, 10, 121 + i * 16, 10, C.white, '#506878'));
+    if (V.mode === 'text' && V.waiting && Math.floor(performance.now() / 350) % 2) { g.fillStyle = '#f85838'; g.beginPath(); g.moveTo(224 * K, 146 * K); g.lineTo(230 * K, 146 * K); g.lineTo(227 * K, 150 * K); g.fill(); }
+  }
+  const arrow = (x, y) => { g.fillStyle = '#404040'; g.beginPath(); g.moveTo(x * K, y * K); g.lineTo((x + 5) * K, (y + 4) * K); g.lineTo(x * K, (y + 8) * K); g.fill(); };
+  if (V.mode === 'main') {                                    // ▶FIGHT  BAG / POKéMON  RUN
+    rr(124, 114, 114, 44, 4, C.white, '#704860', 2); rr(126, 116, 110, 40, 3, null, '#a8a8a8', 1);
+    V.items.forEach((it, i) => {
+      const x = 138 + (i % 2) * 54, y = 122 + Math.floor(i / 2) * 16;
+      txt(it.label === 'PKMN' ? 'POKéMON' : it.label, x, y, 10, C.ink, C.shadow);
+      if (i === V.cursor) arrow(x - 8, y + 1.5);
+      V.hits.push([x - 10, y - 3, 54, 15, i]);
+    });
+  } else if (V.mode === 'moves' || V.mode === 'list') {
+    const moves = V.mode === 'moves';
+    rr(2, 114, moves ? 158 : 236, 44, 4, C.white, '#704860', 2);
+    const cols = 2, rows = Math.ceil(V.items.length / cols), lh = rows > 2 ? 40 / rows : 16;
+    V.items.forEach((it, i) => {
+      const x = 14 + (i % cols) * (moves ? 74 : 112), y = 119 + Math.floor(i / cols) * lh;
+      txt(it.label, x, y, rows > 2 ? 8 : 10, it.disabled ? '#a8a8a8' : C.ink, C.shadow);
+      if (i === V.cursor) arrow(x - 9, y + 1);
+      V.hits.push([x - 10, y - 2, moves ? 72 : 110, lh, i]);
+    });
+    if (moves) {                                              // PP and type of the move under the cursor
+      rr(162, 114, 76, 44, 4, C.white, '#704860', 2);
+      const it = V.items[V.cursor];
+      if (it && it.value !== 'back') {
+        const mv = MOVES[it.value], slot = Pb.mon.moves.find(m => m.id === it.value);
+        txt('PP', 170, 121, 10, C.ink, C.shadow); txt(`${slot ? slot.pp : '-'}/${mv ? mv.pp : '-'}`, 230, 121, 10, slot && slot.pp <= (mv ? mv.pp / 4 : 0) ? '#e04030' : C.ink, C.shadow, 'right');
+        txt('TYPE/' + (mv ? mv.type : ''), 170, 138, 9, C.ink, C.shadow);
+      }
+    }
+  }
+  requestAnimationFrame(render);
+}
+function draw() { /* everything is drawn every frame by render() */ }
+
+/* messages: wait for a tap / key (tests can set window.BATTLE_FAST); long text shows two lines at a time */
 let advance = null;
 function msg(t) {
-  $('bMsg').textContent = t; $('bMenu').innerHTML = '';
+  V.mode = 'text'; V.text = t; V.page = 0; V.items = [];
   if (window.BATTLE_FAST) return Promise.resolve();
+  const pages = Math.max(1, Math.ceil(wrap(t, 218, 10).length / 2));
   return new Promise(res => {
-    const t0 = performance.now();
-    let done = false;
-    const finish = () => { if (done) return; done = true; if (advance === mine) advance = null; res(); };
+    let t0 = performance.now(), done = false;
+    V.waiting = true;
+    const finish = () => { if (done) return; if (V.page + 1 < pages) { V.page++; t0 = performance.now(); clearTimeout(timer); timer = setTimeout(finish, 2600); return; } done = true; V.waiting = false; if (advance === mine) advance = null; res(); };
     const mine = () => { if (performance.now() - t0 > 220) finish(); };
     advance = mine;
-    setTimeout(finish, 2600);                      // text also moves on by itself
+    let timer = setTimeout(finish, 2600);                    // text also moves on by itself
   });
 }
-B.addEventListener('pointerdown', e => { if (advance && !e.target.closest('#bMenu')) advance(); });
 
-/* menus: a grid of buttons; arrows move, Space/Enter picks, Esc/X goes back */
-let menuBack = null;
+/* menus: arrows move the ▶, Space/Enter picks, Esc/X goes back; tapping an item picks it */
+let menuPick = null, menuBack = null;
 function menu(items, back) {
-  const m = $('bMenu'); m.innerHTML = ''; menuBack = back || null;
+  const main = items.length === 4 && items[0].value === 'fight';
+  const moves = !main && items.every(it => MOVES[it.value] || it.value === 'STRUGGLE');
+  V.mode = main ? 'main' : moves ? 'moves' : 'list';
+  if (main) V.text = `What will\n${name(Pb.mon).toUpperCase()} do?`;
+  V.items = items.slice(); if (back) V.items.push({label: 'BACK', value: 'back'});
+  V.cursor = Math.max(0, V.items.findIndex(it => !it.disabled)); V.page = 0;
   return new Promise(res => {
-    items.forEach((it, i) => {
-      const b = document.createElement('button'); b.innerHTML = it.label + (it.sub ? `<small>${it.sub}</small>` : '');
-      b.disabled = !!it.disabled;
-      b.onclick = () => { menuBack = null; res(it.value); };
-      m.appendChild(b);
-    });
-    if (back) { const b = document.createElement('button'); b.textContent = 'BACK'; b.onclick = () => { menuBack = null; res('back'); }; m.appendChild(b); }
-    const first = m.querySelector('button:not(:disabled)'); if (first) first.focus();
-    menuBack = back ? () => res('back') : null;
+    menuPick = i => { const it = V.items[i]; if (!it || it.disabled) return; menuPick = menuBack = null; res(it.value); };
+    menuBack = back ? () => { menuPick = menuBack = null; res('back'); } : null;
   });
 }
 addEventListener('keydown', e => {
   if (!window.BATTLE_OPEN) return;
   e.preventDefault();
-  if (['Space', 'Enter', 'KeyZ'].includes(e.code)) { if (advance) return advance(); const f = document.activeElement; if (f && f.closest('#bMenu')) f.click(); return; }
+  if (['Space', 'Enter', 'KeyZ'].includes(e.code)) { if (advance) return advance(); if (menuPick) menuPick(V.cursor); return; }
   if (['Escape', 'KeyX', 'Backspace'].includes(e.code)) { if (menuBack) menuBack(); return; }
-  const bs = [...$('bMenu').querySelectorAll('button:not(:disabled)')]; if (!bs.length) return;
-  let i = bs.indexOf(document.activeElement); if (i < 0) i = 0;
   const step = {ArrowRight: 1, ArrowLeft: -1, ArrowDown: 2, ArrowUp: -2, KeyD: 1, KeyA: -1, KeyS: 2, KeyW: -2}[e.code];
-  if (step) bs[(i + step + bs.length) % bs.length].focus();
+  if (step && V.items.length) { let i = V.cursor; for (let k = 0; k < V.items.length; k++) { i = (i + step + V.items.length * 4) % V.items.length; if (!V.items[i].disabled) break; } V.cursor = i; }
+});
+CAN.addEventListener('pointerdown', e => {
+  const r = CAN.getBoundingClientRect(), x = (e.clientX - r.left) / r.width * 240, y = (e.clientY - r.top) / r.height * 160;
+  const hit = V.hits.find(([hx, hy, hw, hh]) => x >= hx && x < hx + hw && y >= hy && y < hy + hh);
+  if (hit && menuPick) { V.cursor = hit[4]; return menuPick(hit[4]); }
+  if (advance) advance();
 });
 
 /* ---------- the fight ---------- */
@@ -289,7 +393,6 @@ async function evolutions() {
     const old = name(p), before = stats(p);
     await msg(`What? ${old} is evolving!`);
     p.dex = ev[0]; const after = stats(p); p.hp += after[0] - before[0];
-    $('bPsp').src = `assets/battle/${p.dex}b.png?v=12`;
     await msg(`Congratulations! Your ${old} evolved into ${name(p)}!`);
   }
 }
@@ -303,7 +406,7 @@ async function wildBattle(dex, lvl) {
   window.BATTLE_OPEN = true; GAME.held.length = 0;
   E = makeMon(dex, lvl, rnd(32)); Eb = battler(E);
   Pb = battler(leadMon());
-  B.style.display = 'block'; $('bEsp').style.opacity = 1; $('bEsp').style.transform = '';
+  B.style.display = 'flex'; V.eAlpha = 1; V.eScale = 1; V.eHP = E.hp; V.pHP = Pb.mon.hp; V.pEXP = 0; requestAnimationFrame(render);
   draw();
   await msg(`A wild ${name(E).toUpperCase()} appeared!`);
   await msg(`Go! ${name(Pb.mon).toUpperCase()}!`);
@@ -312,7 +415,6 @@ async function wildBattle(dex, lvl) {
     // the player's choice
     let act = null;
     while (!act) {
-      $('bMsg').textContent = `What will ${name(Pb.mon).toUpperCase()} do?`;
       const c = await menu([{label: 'FIGHT', value: 'fight'}, {label: 'BAG', value: 'bag'}, {label: 'PKMN', value: 'pkmn'}, {label: 'RUN', value: 'run'}]);
       if (c === 'fight') {
         const usable = Pb.mon.moves.filter(m => m.pp > 0);
@@ -337,22 +439,22 @@ async function wildBattle(dex, lvl) {
       save.bag.ball--; await msg('You threw a POKé BALL!');
       const mx = stats(E)[0], bonus = E.status === 'SLP' ? 2 : E.status ? 1.5 : 1;
       const a = Math.max(1, Math.floor((3 * mx - 2 * E.hp) * DEX[E.dex].catch * bonus / (3 * mx)));
-      $('bEsp').style.transform = 'scale(.2)'; $('bEsp').style.opacity = .2;
+      V.eScale = .25; V.eAlpha = .35;
       let shakes = 0; const p = Math.pow(a / 255, 1 / 4);
       for (; shakes < 4; shakes++) { if (a < 255 && Math.random() > p) break; if (shakes < 3) await msg('...' + '.'.repeat(shakes)); }
       if (shakes >= 4) {
-        $('bEsp').style.opacity = 0;
+        V.eAlpha = 0;
         await msg(`Gotcha! ${name(E).toUpperCase()} was caught!`);
         if (save.party.length < 6) { save.party.push(E); await msg(`${name(E)} joined your party!`); }
         else { save.box.push(E); await msg(`${name(E)} was sent to the PC box.`); }
         result = 'caught'; break;
       }
-      $('bEsp').style.transform = ''; $('bEsp').style.opacity = 1;
+      V.eScale = 1; V.eAlpha = 1;
       await msg(['Oh no! The Pokémon broke free!', 'Aww! It appeared to be caught!', 'Aargh! Almost had it!', 'Shoot! It was so close, too!'][Math.min(shakes, 3)]);
     }
     if (act.swap != null) {
       await msg(`${name(Pb.mon)}, come back!`);
-      const chosen = save.party[act.swap]; save.party.splice(act.swap, 1); save.party.unshift(chosen); Pb = battler(chosen);
+      const chosen = save.party[act.swap]; save.party.splice(act.swap, 1); save.party.unshift(chosen); Pb = battler(chosen); V.pHP = chosen.hp;
       draw(); await msg(`Go! ${name(Pb.mon).toUpperCase()}!`);
     }
     // attacks, fastest first
@@ -367,7 +469,7 @@ async function wildBattle(dex, lvl) {
     if (E.hp > 0 && Pb.mon.hp > 0) { await endOfTurn(Pb); await endOfTurn(Eb); }
     // fainting
     if (E.hp <= 0) {
-      $('bEsp').style.opacity = 0; await msg(`The wild ${name(E).toUpperCase()} fainted!`);
+      V.eAlpha = 0; await msg(`The wild ${name(E).toUpperCase()} fainted!`);
       if (Pb.mon.hp > 0) await gainExp(Pb.mon, Math.max(1, Math.floor(DEX[E.dex].exp * E.lvl / 7)));
       result = 'won';
     }
@@ -375,7 +477,7 @@ async function wildBattle(dex, lvl) {
       await msg(`${name(Pb.mon).toUpperCase()} fainted!`);
       if (result) break;
       if (save.party.some(p => p.hp > 0)) {
-        const i = await choosePokemon(true); Pb = battler(save.party[i]);
+        const i = await choosePokemon(true); Pb = battler(save.party[i]); V.pHP = Pb.mon.hp;
         const p = Pb.mon; save.party.splice(save.party.indexOf(p), 1); save.party.unshift(p);
         draw(); await msg(`Go! ${name(Pb.mon).toUpperCase()}!`);
       } else {
@@ -398,8 +500,8 @@ window.symbolBattle = async (o, mapId) => {
   const w = WILD[mapId] || {min: 3, max: 5};
   const res = await wildBattle(o.dex, o.lvl || (w.min + rnd(w.max - w.min + 1)));
   o.chasing = false; o.alert = 0;
-  if (res === 'won' || res === 'caught') { o.gone = true; o.respawn = Date.now() + 45000; o.lvl = w.min + rnd(w.max - w.min + 1); }
-  else o.cool = 240;                              // ran away: it leaves you alone for a few seconds
+  o.gone = true; o.respawn = Date.now() + 45000;         // whatever happened (won, caught or ran), that Pokemon is gone after the fight
+  o.lvl = w.min + rnd(w.max - w.min + 1);
 };
 
 /* ---------- party / stats screen (P key, PKMN button) ---------- */
@@ -409,7 +511,7 @@ function renderParty() {
   PT.innerHTML = `<h2>YOUR POKéMON</h2><div class="hint">Tap a Pokémon (or press 1-6) to make it lead. P / Esc / tap here to close. Bag: ${save.bag.ball} Poké Balls, ${save.bag.potion} Potions. PC box: ${save.box.length}</div>` +
     save.party.map((p, i) => {
       const s = stats(p), a = expFor(p.dex, p.lvl), b = expFor(p.dex, p.lvl + 1);
-      return `<div class="card ${i === 0 ? 'lead' : ''}" data-i="${i}"><img src="assets/battle/${p.dex}f.png?v=12">
+      return `<div class="card ${i === 0 ? 'lead' : ''}" data-i="${i}"><img src="assets/battle/${p.dex}f.png?v=14">
         <div><b>${i + 1}. ${name(p).toUpperCase()}</b> Lv${p.lvl} ${DEX[p.dex].types.map(typeTag).join('')} ${p.status ? '<span class="ty" style="background:#c05050">' + p.status + '</span>' : ''}<br>
         HP ${p.hp}/${s[0]} · EXP ${p.exp - a}/${b - a} to next level
         <div class="stats">${STAT_NAMES.slice(1).map((n, k) => `<span>${n} ${s[k + 1]}</span>`).join('')}</div>

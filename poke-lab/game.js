@@ -10,7 +10,7 @@ const SIDE = {up: 'n', down: 's', left: 'w', right: 'e'};
 const IMG = {};
 function img(src) {
   if (IMG[src]) return IMG[src];
-  const im = new Image(); im.src = src + '?v=12'; im.ready = false;
+  const im = new Image(); im.src = src + '?v=14'; im.ready = false;
   im.onload = () => { im.ready = true; }; IMG[src] = im; return im;
 }
 const whenReady = list => Promise.all(list.map(im => im.ready ? 1 : new Promise(r => { im.addEventListener('load', r); im.addEventListener('error', r); if (im.complete && im.naturalWidth) { im.ready = true; r(); } })));
@@ -59,7 +59,7 @@ function rt(mid) {
       taken.add(x + ',' + y); k++;
       RT[mid].mons.push(mk({x, y, dex: W.mons[Math.floor(Math.random() * W.mons.length)]}, 'mon'));
     }
-    for (const o of RT[mid].mons) { o.wild = true; o.mood = Math.random() < 0.5 ? 'bold' : 'shy'; o.lvl = W.min + Math.floor(Math.random() * (W.max - W.min + 1)); }
+    for (const o of RT[mid].mons) { o.wild = true; o.mood = Math.random() < 0.4 ? 'aggressive' : 'passive'; o.lvl = W.min + Math.floor(Math.random() * (W.max - W.min + 1)); }
   }
   return RT[mid];
 }
@@ -154,7 +154,7 @@ function toggleMap() {
   if (w.style.display === 'flex') { w.style.display = 'none'; return; }
   w.style.display = 'flex'; drawWorldMap(); held.length = 0;
 }
-const OVIMG = new Image(); OVIMG.src = 'assets/overview.png?v=12';
+const OVIMG = new Image(); OVIMG.src = 'assets/overview.png?v=14';
 function drawWorldMap() {
   const c = $('wmc'), g = c.getContext('2d'), O = WORLD.overview;
   c.width = O.w; c.height = O.h; g.imageSmoothingEnabled = false;
@@ -251,16 +251,16 @@ function update() {
     if (o.moving) { o.p += o.wild && o.chasing ? SPD * 1.25 : SPD; if (o.p >= T) finishStep(o); continue; }
     if (o.kind === 'npc' && !o.wander) continue;
     let d = null;
-    if (o.wild && !talking) {
+    if (o.wild && o.mood === 'aggressive' && !talking) {                 // only aggressive ones react: "!" then they attack
       const ddx = P.x - o.x, ddy = P.y - o.y, dist = Math.abs(ddx) + Math.abs(ddy);
       if (dist <= 5 && o.cool <= 0) {
         if (!o.chasing) { o.chasing = true; o.alert = 45; o.wait = 25; }   // it noticed you: "!"
         if (o.alert > 0) o.alert--;
-        if (dist === 1 && o.mood === 'bold' && !P.moving) { o.dir = Math.abs(ddx) ? (ddx > 0 ? 'right' : 'left') : (ddy > 0 ? 'down' : 'up'); touchWild(o); continue; }
+        if (dist === 1 && !P.moving) { o.dir = Math.abs(ddx) ? (ddx > 0 ? 'right' : 'left') : (ddy > 0 ? 'down' : 'up'); touchWild(o); continue; }
         if (--o.wait > 0) continue;
-        o.wait = o.mood === 'bold' ? 10 : 18;
+        o.wait = 10;
         const toward = Math.abs(ddx) > Math.abs(ddy) ? (ddx > 0 ? 'right' : 'left') : (ddy > 0 ? 'down' : 'up');
-        d = o.mood === 'bold' ? toward : OPP[toward];
+        d = toward;
         const [dx, dy] = DIRS[d], nx = o.x + dx, ny = o.y + dy;
         o.dir = d;
         if (nx < 2 || ny < 2 || nx >= M.w - 2 || ny >= M.h - 2 || solidAt(M, nx, ny) || entityAt(nx, ny, o)) continue;
@@ -312,7 +312,7 @@ function draw() {
     const [x, y] = pos(o);
     list.push({y: y + 15, f: () => {
       drawMon(o.dex, o.dir, o.moving ? (frame >> 3) : (frame >> 5), x, y);
-      if (o.alert > 0 || (o.chasing && o.mood === 'bold' && frame % 40 < 20)) {          // exclamation bubble
+      if (o.alert > 0 || (o.chasing && frame % 40 < 20)) {          // exclamation bubble
         ctx.fillStyle = '#fff'; ctx.fillRect(x + 4, y - 19, 8, 11); ctx.fillStyle = '#d02020';
         ctx.fillRect(x + 7, y - 17, 2, 5); ctx.fillRect(x + 7, y - 11, 2, 2);
       }
