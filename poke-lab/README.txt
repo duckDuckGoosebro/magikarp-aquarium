@@ -1,41 +1,36 @@
-POKE LAB - walk through 8 connected cities. ALL ART IS POKEMON GBA (Emerald / FireRed).
+POKE LAB - walk through 14 connected towns. ALL ART IS POKEMON GBA (FireRed tiles, Emerald walking sprites).
 
 PLAY
-  Double-click PLAY.bat (or open index.html).
+  Double-click PLAY.bat (or open index.html). Online: https://duckduckgoosebro.github.io/magikarp-aquarium/poke-lab/
   PC:    arrows / WASD walk, Space or Z talks, M = world map, Esc closes boxes.
   Phone: on-screen pad walks, A talks, MAP opens the world map.
   Your Porygon follows you. Progress (which towns you've visited) is saved in the browser.
 
-THE WORLD  (8 cities, 10 winding routes, every map joined to its neighbours)
-  Press M in the game for the painted world map (made from the same GBA tiles). Roads on it follow the real routes.
-  BIRCHFIELD (start, science lab) - R1 - MEADOWVALE - R2 - PINEWOOD - R3 - CRAGTON
-  Birchfield also goes south (R4) to LAKEHAVEN; Meadowvale south (R5) to STONEGATE; Lakehaven east (R6) to SANDPORT;
-  Sandport east (R7) to Stonegate; Pinewood south (R8) to Stonegate; Stonegate east (R9) to CROWNPORT; Cragton south (R10) to Crownport.
-  Routes bend and wander; towns have 2-4 exits. Roads are plain sand (no green edges) and everything sits on the 16px tile grid.
-  Walk off a map edge through the sand-road gap and the next map loads.
+THE WORLD  (14 towns, 18 winding routes, every map joined to its neighbours)
+  Press M for the world map. Start in BIRCHFIELD (science lab, Sunny the clown).
+  Towns: Birchfield, Meadowvale, Pinewood, Frostpeak, Cragton, Summit, Stonegate, Crownport, Lakehaven, Marshby,
+         Emberisle, Sandport, Tidewell, Dunmoor.
+  Each town uses a different FireRed tileset, and every building in a town is DIFFERENT (no copies).
+  Town layouts are new and organic: winding sand roads from each exit to a plaza, a little path to every door,
+  plus lakes / sea coast / rocks / woods / ponds depending on the town. Small towns are smaller maps.
+  The only person is Sunny; the rest of the life is wandering Pokemon.
 
 FILES
-  index.html, game.js     the game (tile walking, map switching, followers, people, signs, world map)
+  index.html, game.js     the game (tile walking, map switching, follower, Sunny, signs, world map)
   world.js                MADE BY tools/build_world.py - sizes, collision, connections, signs, people, wandering Pokemon
-  assets/maps/            one picture per map (bottom layer + top layer for roofs/treetops), drawn from real FireRed tilesets
-  assets/overview.png     the painted world map (press M)
-  assets/trainers/        GBA walking sheets (Emerald overworld): player = Brendan, plus townspeople and scientists
-  assets/followers/       GBA-style follower sheets for the Pokemon that wander (4 frames x 4 directions)
-  tools/gba_render.py     draws maps from GBA metatiles (Emerald in sprites/gba, FireRed in sprites/gba_firered)
-  tools/build_world.py    LAYOUT of every city and route; also CHECKS that all maps are reachable, every exit/door/sign can be walked to
-  tools/fr_data.py        where each building sits inside the real FireRed town layouts (check with tools/check_stamps.py)
-  _not_gba/, tools/_old_emerald_build_world.py   earlier attempts (hand-drawn lab, HGSS tiles, Emerald-look towns). Not used.
-
-LOOK
-  Every city uses a different FireRed town tileset so the towns look different from each other and from Emerald:
-  Birchfield = Pallet Town (red roofs + Oak's lab as the science lab), Meadowvale = Viridian, Pinewood and Stonegate = Pewter,
-  Cragton = Lavender, Lakehaven = Cerulean, Sandport = Vermilion, Crownport = Celadon. The layouts are new, not the real towns.
+  assets/maps/            one picture per map (bottom layer + top layer for roofs/treetops)
+  assets/overview.png     the world map picture
+  assets/trainers/        brendan.png (player), sunny.png (made by tools/make_sunny.py from an Emerald girl sprite)
+  assets/followers/       GBA-style follower sheets for the wandering Pokemon
+  tools/fr_auto.py        finds every different building in the real FireRed maps -> tools/buildings.json
+  tools/build_world.py    builds every town and route, CHECKS everything is reachable (re-rolls a town if not), draws them
+  tools/gba_render.py     draws GBA metatiles, using the real layer types (flowers/ground under the player, roofs over)
+  tools/_old_*.py, _not_gba/   earlier versions. Not used.
 
 CHANGE THE WORLD
-  Edit tools/build_world.py (CITIES = what sits in each town quarter, TEXT = what people say, MONS = which Pokemon wander),
-  then run:  python "POKE LAB/tools/build_world.py"   (it stops with a list of problems if a map would be cut off)
+  Edit tools/build_world.py (TOWNS, ROUTES, MONS), then run:  python "POKE LAB/tools/build_world.py"
 
 SPRITE SOURCES (personal use only; Nintendo / Game Freak art)
-  Towns/tiles/buildings: sprites/gba_firered (pret/pokefirered tilesets + town layouts, fetched by fetch.py)
-  People: sprites/trainers_walking/emerald (pret/pokeemerald)
+  Tiles + buildings: sprites/gba_firered (pret/pokefirered tilesets, attributes and layouts)
+  Player: sprites/trainers_walking/emerald (pret/pokeemerald)
   Pokemon: sprites/trainers_walking/followers_baptiste (GBA-style follower sheets)

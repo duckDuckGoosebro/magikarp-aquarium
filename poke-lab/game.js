@@ -10,7 +10,7 @@ const SIDE = {up: 'n', down: 's', left: 'w', right: 'e'};
 const IMG = {};
 function img(src) {
   if (IMG[src]) return IMG[src];
-  const im = new Image(); im.src = src + '?v=7'; im.ready = false;
+  const im = new Image(); im.src = src + '?v=8'; im.ready = false;
   im.onload = () => { im.ready = true; }; IMG[src] = im; return im;
 }
 const whenReady = list => Promise.all(list.map(im => im.ready ? 1 : new Promise(r => { im.addEventListener('load', r); im.addEventListener('error', r); if (im.complete && im.naturalWidth) { im.ready = true; r(); } })));
@@ -85,7 +85,7 @@ async function enter(mid, x, y, dir) {
 }
 function hud() {
   const cities = WORLD.cities.filter(c => save.visited[c]).length;
-  $('hud').innerHTML = `${M.name}<br>Towns ${cities}/8`;
+  $('hud').innerHTML = `${M.name}<br>Towns ${cities}/${WORLD.cities.length}`;
 }
 let bannerT = 0;
 function banner(t) { const b = $('banner'); b.textContent = t; b.classList.add('show'); clearTimeout(bannerT); bannerT = setTimeout(() => b.classList.remove('show'), 2200); }
@@ -139,10 +139,11 @@ function toggleMap() {
   if (w.style.display === 'flex') { w.style.display = 'none'; return; }
   w.style.display = 'flex'; drawWorldMap(); held.length = 0;
 }
-const OVIMG = new Image(); OVIMG.src = 'assets/overview.png?v=7';
+const OVIMG = new Image(); OVIMG.src = 'assets/overview.png?v=8';
 function drawWorldMap() {
   const c = $('wmc'), g = c.getContext('2d'), O = WORLD.overview;
   c.width = O.w; c.height = O.h; g.imageSmoothingEnabled = false;
+  c.style.width = `min(96vw, calc((100vh - 60px) * ${O.w / O.h}))`;
   if (OVIMG.complete) g.drawImage(OVIMG, 0, 0); else OVIMG.onload = drawWorldMap;
   g.textAlign = 'center'; const font = n => `${n}px "Press Start 2P", monospace`;
   // route numbers on the roads
