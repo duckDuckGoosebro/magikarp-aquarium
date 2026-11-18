@@ -1,0 +1,133 @@
+package world.gregs.voidps.engine.entity
+
+import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap
+import it.unimi.dsi.fastutil.objects.ObjectArrayList
+import world.gregs.voidps.engine.Script
+import world.gregs.voidps.engine.data.definition.Areas
+import world.gregs.voidps.engine.entity.character.mode.move.Moved
+import world.gregs.voidps.engine.entity.character.npc.NPC
+import world.gregs.voidps.engine.entity.character.player.Player
+import world.gregs.voidps.engine.entity.item.floor.FloorItem
+import world.gregs.voidps.engine.entity.obj.GameObject
+import world.gregs.voidps.engine.event.Wildcard
+import world.gregs.voidps.engine.event.Wildcards
+import world.gregs.voidps.type.Delta
+
+interface Despawn {
+
+    fun playerDespawn(handler: Player.() -> Unit) {
+        Script.checkLoading()
+        playerDespawns.add(handler)
+    }
+
+    fun playerLogout(handler: Player.() -> Boolean) {
+        Script.checkLoading()
+        playerLogout.add(handler)
+    }
+
+    fun npcDespawn(id: String = "*", handler: NPC.() -> Unit) {
+        Script.checkLoading()
+        Wildcards.find(id, Wildcard.Npc) { key ->
+            npcDespawns.getOrPut(key) { mutableListOf() }.add(handler)
+        }
+    }
+
+    fun objectDespawn(id: String = "*", handler: GameObject.() -> Unit) {
+        Script.checkLoading()
+        Wildcards.find(id, Wildcard.Object) { key ->
+            objectDespawns.getOrPut(key) { mutableListOf() }.add(handler)
+        }
+    }
+
+    /**
+     * Floor item is removed from the world.
+     * Not called for item respawns or when all items are cleared.
+     */
+    fun floorItemDespawn(id: String = "*", handler: FloorItem.() -> Unit) {
+        Script.checkLoading()
+        Wildcards.find(id, Wildcard.Item) { key ->
+            floorItemDespawns.getOrPut(key) { mutableListOf() }.add(handler)
+        }
+    }
+
+    fun worldDespawn(handler: () -> Unit) {
+        Script.checkLoading()
+        worldDespawns.add(handler)
+    }
+
+    companion object : AutoCloseable {
+        private val playerLogout = ObjectArrayList<(Player) -> Boolean>(2)
+        private val playerDespawns = ObjectArrayList<(Player) -> Unit>(20)
+        private val npcDespawns = Object2ObjectOpenHashMap<String, MutableList<(NPC) -> Unit>>(30)
+        private val objectDespawns = Object2ObjectOpenHashMap<String, MutableList<(GameObject) -> Unit>>(10)
+        private val floorItemDespawns = Object2ObjectOpenHashMap<String, MutableList<(FloorItem) -> Unit>>(2)
+        private val worldDespawns = ObjectArrayList<() -> Unit>(2)
+
+        fun logout(player: Player): Boolean {
+            for (handler in playerLogout) {
+                if (!handler(player)) {
+                    return false
+                }
+            }
+            return true
+        }
+
+        fun player(player: Player) {
+            val offset = player.get<Long>("instance_offset")?.let { Delta(it) } ?: Delta.EMPTY
+            val original = player.tile.minus(offset)
+            for (def in Areas.get(original.zone)) {
+                if (original in def.area) {
+                    Moved.exit(player, def.name, def)
+                }
+            }
+            for (handler in playerDespawns) {
+                handler(player)
+            }
+            player.queue.logout()
+            player.softTimers.stopAll()
+            player.timers.stopAll()
+        }
+
+        fun npc(npc: NPC) {
+            for (handler in npcDespawns["*"] ?: emptyList()) {
+                handler(npc)
+            }
+            for (handler in npcDespawns[npc.id] ?: return) {
+                handler(npc)
+            }
+        }
+
+        fun gameObject(gameObject: GameObject) {
+            for (handler in objectDespawns["*"] ?: emptyList()) {
+                handler(gameObject)
+            }
+            for (handler in objectDespawns[gameObject.id] ?: return) {
+                handler(gameObject)
+            }
+        }
+
+        fun floorItem(floorItem: FloorItem) {
+            for (handler in floorItemDespawns["*"] ?: emptyList()) {
+                handler(floorItem)
+            }
+            for (handler in floorItemDespawns[floorItem.id] ?: return) {
+                handler(floorItem)
+            }
+        }
+
+        fun world() {
+            for (handler in worldDespawns) {
+                handler()
+            }
+        }
+
+        override fun close() {
+            playerLogout.clear()
+            playerDespawns.clear()
+            npcDespawns.clear()
+            objectDespawns.clear()
+            floorItemDespawns.clear()
+            worldDespawns.clear()
+        }
+    }
+}

@@ -1,0 +1,167 @@
+package content.quest
+
+import WorldTest
+import containsMessage
+import kotlinx.coroutines.test.runTest
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Test
+import world.gregs.voidps.engine.client.command.Commands
+import world.gregs.voidps.engine.entity.character.player.PlayerRights
+import world.gregs.voidps.engine.entity.character.player.rights
+import world.gregs.voidps.engine.entity.character.player.skill.Skill
+import world.gregs.voidps.engine.entity.character.player.skill.level.Level
+import world.gregs.voidps.engine.get
+import world.gregs.voidps.engine.inv.inventory
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+class QuestCommandsTest : WorldTest() {
+
+    @Test
+    fun `Unlocking all quests awards every implemented quest point`() {
+        val admin = createPlayer(name = "unlock admin")
+        admin.rights = PlayerRights.Admin
+
+        runTest { Commands.call(admin, "unlock quests") }
+        tick()
+
+        val total = questPointsTotal(get())
+        assertTrue(total > 1)
+        assertEquals(total, admin["quest_points", 0])
+    }
+
+    @Test
+    fun `Quest prep meets a quest's skill, quest and item requirements`() {
+        val admin = createPlayer(name = "prep admin")
+        admin.rights = PlayerRights.Admin
+
+        runTest { Commands.call(admin, "quest_prep rum_deal") }
+        tick()
+
+        // req_skills from quests.toml
+        assertEquals(40, admin.levels.getMax(Skill.Farming))
+        assertEquals(50, admin.levels.getMax(Skill.Fishing))
+        assertEquals(47, admin.levels.getMax(Skill.Prayer))
+        assertEquals(42, admin.levels.getMax(Skill.Crafting))
+        assertEquals(42, admin.levels.getMax(Skill.Slayer))
+
+        // req_quests
+        assertTrue(admin.questCompleted("zogre_flesh_eaters"))
+
+        // req_item_ids - everything else is handed out during the quest
+        assertTrue(admin.inventory.contains("slayer_gloves"))
+        assertTrue(admin.inventory.contains("spade"))
+    }
+
+    @Test
+    fun `Quest prep hands out stacks of the items a quest needs more than one of`() {
+        val admin = createPlayer(name = "prep admin myreque")
+        admin.rights = PlayerRights.Admin
+
+        runTest { Commands.call(admin, "quest_prep in_search_of_the_myreque") }
+        tick()
+
+        assertEquals(25, admin.levels.getMax(Skill.Agility))
+        assertTrue(admin.questCompleted("nature_spirit"))
+        assertTrue(admin.inventory.contains("steel_longsword"))
+        assertTrue(admin.inventory.contains("steel_sword", 2))
+        assertTrue(admin.inventory.contains("steel_nails", 225))
+        assertTrue(admin.inventory.contains("plank", 6))
+        assertTrue(admin.inventory.contains("druid_pouch_2", 5))
+        assertTrue(admin.inventory.contains("silver_sickle_b"))
+        assertTrue(admin.inventory.contains("coins", 10))
+        assertTrue(admin.inventory.contains("hammer"))
+    }
+
+    @Test
+    fun `Quest reset clears the flags a quest keeps under other names`() {
+        val admin = createPlayer(name = "reset admin myreque")
+        admin.rights = PlayerRights.Admin
+        admin["in_search_of_the_myreque"] = "completed"
+        admin["bridgerung1"] = true
+        admin["bridgerung3"] = true
+        admin["route_bridgecomplete"] = true
+        admin["thsfm_vanstrom_hide"] = true
+        admin["met_sani"] = true
+        admin["met_polmafi"] = true
+
+        runTest { Commands.call(admin, "quest_reset in_search_of_the_myreque") }
+        tick()
+
+        assertEquals("unstarted", admin["in_search_of_the_myreque", "unstarted"])
+        assertFalse(admin["bridgerung1", false])
+        assertFalse(admin["bridgerung3", false])
+        assertFalse(admin["route_bridgecomplete", false])
+        assertFalse(admin["thsfm_vanstrom_hide", false], "Vanstrom sits back down in the tavern")
+        assertFalse(admin["met_sani", false])
+        assertFalse(admin["met_polmafi", false])
+    }
+
+    @Test
+    fun `Quest prep sets up the world state a quest inherits from its prerequisites`() {
+        val admin = createPlayer(name = "prep admin biohazard")
+        admin.rights = PlayerRights.Admin
+
+        runTest { Commands.call(admin, "quest_prep biohazard") }
+        tick()
+
+        assertTrue(admin.questCompleted("plague_city"))
+        assertTrue(admin.inventory.contains("priest_gown_top"))
+        assertTrue(admin.inventory.contains("priest_gown_bottom"))
+        assertTrue(admin["plaguecity_elena_at_home", false], "Elena should be home to start the quest")
+    }
+
+    @Test
+    fun `Quest prep never lowers a skill the player has already trained`() {
+        val admin = createPlayer(name = "prep admin2")
+        admin.rights = PlayerRights.Admin
+        admin.experience.set(Skill.Fishing, Level.experience(80))
+
+        runTest { Commands.call(admin, "quest_prep rum_deal") }
+        tick()
+
+        assertEquals(80, admin.levels.getMax(Skill.Fishing))
+    }
+
+    @Test
+    fun `Quest prep reports an unknown quest`() {
+        val admin = createPlayer(name = "prep admin3")
+        admin.rights = PlayerRights.Admin
+
+        runTest { Commands.call(admin, "quest_prep not_a_quest") }
+        tick()
+
+        assertTrue(admin.containsMessage("No quest found with id 'not_a_quest'."))
+    }
+
+    @Test
+    fun `Quest reset puts the quest back to unstarted and clears its variables`() {
+        val admin = createPlayer(name = "reset admin")
+        admin.rights = PlayerRights.Admin
+        admin["rum_deal"] = "collect_swill"
+        admin["rum_deal_pressure_count"] = 5
+        admin["rum_deal_slugling_count"] = 3
+        admin["rum_deal_swab_a"] = 1
+        admin["rum_deal_brewing_control"] = 2
+
+        runTest { Commands.call(admin, "quest_reset rum_deal") }
+        tick()
+
+        assertEquals("unstarted", admin["rum_deal", "unstarted"])
+        assertEquals(0, admin["rum_deal_pressure_count", 0])
+        assertEquals(0, admin["rum_deal_slugling_count", 0])
+        assertEquals(0, admin["rum_deal_swab_a", 0])
+        assertEquals(0, admin["rum_deal_brewing_control", 0])
+    }
+
+    @Test
+    fun `Quest reset reports an unknown quest`() {
+        val admin = createPlayer(name = "reset admin2")
+        admin.rights = PlayerRights.Admin
+
+        runTest { Commands.call(admin, "quest_reset not_a_quest") }
+        tick()
+
+        assertTrue(admin.containsMessage("No quest found with id 'not_a_quest'."))
+    }
+}

@@ -1,0 +1,399 @@
+package content.area.wilderness.daemonheim
+
+import content.area.wilderness.daemonheim.DungeonFloor.Companion.maxFloor
+import content.area.wilderness.daemonheim.DungeoneeringParty.Companion.dungeonLeader
+import content.area.wilderness.daemonheim.DungeoneeringParty.Companion.dungeonMembers
+import content.area.wilderness.daemonheim.DungeoneeringParty.Companion.inDungeoneering
+import content.entity.player.dialogue.type.choice
+import content.entity.player.dialogue.type.item
+import content.entity.player.dialogue.type.statement
+import content.entity.player.modal.Tab
+import content.entity.player.modal.tab
+import content.entity.player.stat.KillTracker
+import content.entity.world.music.playTrack
+import content.quest.joinInstance
+import content.quest.largeInstance
+import content.quest.smallInstance
+import content.skill.dungeoneering.DungeonDoor
+import content.skill.dungeoneering.DungeonGenerator
+import content.skill.dungeoneering.DungeonMap
+import content.skill.dungeoneering.DungeonMusic
+import content.skill.dungeoneering.DungeonRoom
+import content.skill.dungeoneering.DungeonRoomType
+import content.skill.dungeoneering.DungeonSize
+import content.skill.dungeoneering.DungeonStartingItems
+import content.skill.dungeoneering.dungeonMap
+import content.skill.magic.spell.spellBook
+import content.skill.summoning.dismissFamiliar
+import content.skill.summoning.isFamiliar
+import content.skill.summoning.pet.pet
+import content.skill.summoning.pet.pickupPet
+import net.pearx.kasechange.toPascalCase
+import net.pearx.kasechange.toTitleCase
+import world.gregs.voidps.engine.Script
+import world.gregs.voidps.engine.client.command.adminCommand
+import world.gregs.voidps.engine.client.command.intArg
+import world.gregs.voidps.engine.client.command.stringArg
+import world.gregs.voidps.engine.client.message
+import world.gregs.voidps.engine.client.ui.closeInterfaces
+import world.gregs.voidps.engine.client.ui.open
+import world.gregs.voidps.engine.data.definition.Tables
+import world.gregs.voidps.engine.entity.character.move.tele
+import world.gregs.voidps.engine.entity.character.player.Player
+import world.gregs.voidps.engine.entity.character.player.isAdmin
+import world.gregs.voidps.engine.entity.character.player.name
+import world.gregs.voidps.engine.inv.carriesItem
+import world.gregs.voidps.engine.inv.equipment
+import world.gregs.voidps.engine.inv.inventory
+import world.gregs.voidps.engine.queue.engineQueue
+import world.gregs.voidps.engine.queue.strongQueue
+import world.gregs.voidps.type.Tile
+import world.gregs.voidps.type.Zone
+
+class DungeonEntrance : Script {
+    init {
+        objectOperate("Climb-down", "daemonheim_dungeon_entrance") {
+            if (!carriesItem("ring_of_kinship")) {
+                item("ring_of_kinship", "To join or create a party, you need a ring of kinship. You can get one form the dungeoneering tutor, on the right of the entrance to Daemonheim castle.")
+                return@objectOperate
+            }
+            if (!DungeoneeringParty.inParty(this)) {
+                choice("Would you like to start a party?") {
+                    option("Yes.") {
+                        DungeoneeringParty.setLeader(this)
+                        open("dungeoneering_party")
+                        tab(Tab.QuestJournals)
+                    }
+                    option("No.") {
+                        message("You must be in a party to enter a dungeon.")
+                        return@option
+                    }
+                }
+                return@objectOperate
+            }
+            if (this != dungeonLeader) {
+                message("<red_orange>Only the party leader can start a dungeon.")
+                return@objectOperate
+            }
+            if (!allMembersCanEnter()) {
+                return@objectOperate
+            }
+            if (dungeonMembers.size == 1) {
+                dungeonSize(1)
+                return@objectOperate
+            }
+
+            // https://youtu.be/tg1Kf4iAkN4?t=243
+            statement("Please select the number of players you want the dungeon to be </col>designed for. <col=531e13>You may not be able to complete a dungeon if too many people leave.")
+            val partySize = dungeonMembers.size
+            // TODO recommend 3 when size 5 https://youtu.be/nSob5r5-UtE?t=2
+            choice {
+                for (i in 1..partySize) {
+                    option("$i${if (i == partySize) " (recommended)" else ""}") {
+                        dungeonSize(i)
+                    }
+                }
+            }
+//            item("ring_of_kinship", 300, "You have unlocked more features and opportunities within Daemonheim. You can now reach complexity level 2.")
+        }
+
+        adminCommand("start_dungeon", intArg("floor", optional = true), stringArg("size", autofill = setOf("small", "medium", "large"), optional = true), intArg("complexity", optional = true)) { args ->
+            val floor = args.getOrNull(0)?.toInt() ?: 1
+            val size = DungeonSize.valueOf((args.getOrNull(1) ?: "small").toTitleCase())
+            val complexity = args.getOrNull(2)?.toInt() ?: 1
+            if (!DungeoneeringParty.inParty(this)) {
+                DungeoneeringParty.setLeader(this)
+                open("dungeoneering_party")
+                tab(Tab.QuestJournals)
+            }
+            for (member in dungeonMembers) {
+                member["dungeoneering_party_floor"] = floor
+                member["dungeoneering_party_complexity"] = complexity
+            }
+            if (!allMembersCanEnter()) {
+                return@adminCommand
+            }
+            generate(size, dungeonMembers.size)
+        }
+
+        timerStop("dungeon_continuation") {
+            val floor = inc("dungeoneering_party_floor").coerceAtMost(dungeonMembers.maxOf { maxFloor(it) })
+            for (member in dungeonMembers) {
+                member["dungeoneering_party_floor"] = floor
+            }
+            val partySize = get("dungeoneering_party_size", "small")
+            val size = DungeonSize.valueOf(partySize.toPascalCase())
+            if (!generate(size, dungeonMembers.size)) {
+                DungeoneeringParty.disband(this)
+            }
+        }
+
+        adminCommand("dungeon_boss", stringArg("boss_name")) { args ->
+            val name = args[0]
+            val theme = "frozen"
+            val complexity = 1
+            val table = Tables.getOrNull("${theme}_c${complexity}_boss")
+            if (table == null) {
+                message("Unable to find boss rooms for $theme c$complexity")
+                return@adminCommand
+            }
+            val room = table.rows().firstOrNull { it.rowId == name }
+            if (room == null) {
+                message("Unable to find boss with name '$name'")
+                return@adminCommand
+            }
+            val width = 1
+            val height = 2
+            val generator = DungeonGenerator(DungeonSize.Small, 1, complexity)
+            val boss = DungeonRoom(Tile(0, 1), true).apply {
+                type = DungeonRoomType.Boss
+                doors[3] = DungeonDoor.Normal
+            }
+            val base = DungeonRoom(Tile(0, 0), true).apply {
+                type = DungeonRoomType.Base
+                doors[1] = DungeonDoor.Normal
+                adjacentRooms[1] = boss
+            }
+            boss.parent = base
+            boss.adjacentRooms[3] = base
+            val grid = arrayOf<DungeonRoom?>(base, boss)
+            generator.populateMap(grid, theme)
+            boss.name = room.rowId
+            boss.zone = Zone(room.int("x"), room.int("y"))
+            val dungeon = DungeonMap(width, height, Tile(0, 0), grid, theme, 1)
+            enter(DungeonSize.Small, dungeon, complexity, 1)
+        }
+    }
+
+    private suspend fun Player.allMembersCanEnter(): Boolean {
+        for (member in dungeonMembers) {
+            if (!member.canEnter()) {
+                if (member == this) {
+                    // https://youtu.be/1e4dfeuKsdg?t=133
+                    message("You are carrying items that cannot be taken into Daemonheim.")
+                } else {
+                    // https://www.youtube.com/watch?v=nSob5r5-UtE
+                    message("${member.name} is carrying items that cannot be taken into Daemonheim.")
+                }
+                return false
+            }
+            if (pet != null) {
+                // rs3
+                if (member == this) {
+                    if (pet.isFamiliar) {
+                        choice("Are you sure you want to dismiss your familiar?") {
+                            option("Yes.") {
+                                dismissFamiliar()
+                                message("You dismissed your follower, ${pet?.def?.name}, so your party can enter Daemonheim.")
+                            }
+                            option("No.") {
+                                message("You must dismiss your follower, ${pet?.def?.name}, so your party can enter Daemonheim.")
+                            }
+                        }
+                    } else {
+                        choice("What do you want to do with your pet?") {
+                            option("Pick pet up.") {
+                                pickupPet()
+                                message("You picked up your pet, ${pet?.def?.name}, so the party can enter Daemonheim.")
+                            }
+                            option("Release pet.") {
+                                choice("Are you sure you want to dismiss your pet?") {
+                                    option("Yes.") {
+                                        dismissFamiliar()
+                                        message("You dismiss your pet, ${pet?.def?.name}, so the party can enter Daemonheim.")
+                                    }
+                                    option("No.") {
+                                        message("You must dismiss your follower, ${pet?.def?.name}, so your party can enter Daemonheim.")
+                                    }
+                                }
+                            }
+                            option("Cancel") {
+                                message("You must dismiss your follower, ${pet?.def?.name}, so your party can enter Daemonheim.")
+                            }
+                        }
+                    }
+                } else {
+                    message("${member.name} has been informed they must dismiss their follower before the party can enter Daemonheim.")
+                    member.strongQueue("dismiss") {
+                        if (pet.isFamiliar) {
+                            choice("Are you sure you want to dismiss your familiar?") {
+                                option("Yes.") {
+                                    dismissFamiliar()
+                                    message("$name made you to dismiss your pet, ${pet?.def?.name}, so the party can enter Daemonheim.")
+                                }
+                                option("No.") {
+                                    message("$name requires you to dismiss your follower, ${pet?.def?.name}, so the party can enter Daemonheim.")
+                                }
+                            }
+                        } else {
+                            choice("What do you want to do with your pet?") {
+                                option("Pick pet up.") {
+                                    pickupPet()
+                                    message("$name made you to pick up your pet, ${pet?.def?.name}, so the party can enter Daemonheim.")
+                                }
+                                option("Release pet.") {
+                                    choice("Are you sure you want to dismiss your pet?") {
+                                        option("Yes.") {
+                                            dismissFamiliar()
+                                            message("$name made you to dismiss your pet, ${pet?.def?.name}, so the party can enter Daemonheim.")
+                                        }
+                                        option("No.") {
+                                            message("$name requires you to dismiss your follower, ${pet?.def?.name}, so the party can enter Daemonheim.")
+                                        }
+                                    }
+                                }
+                                option("Cancel") {
+                                    message("$name requires you to dismiss your follower, ${pet?.def?.name}, so the party can enter Daemonheim.")
+                                }
+                            }
+                        }
+                    }
+                }
+                return false
+            }
+        }
+        return true
+    }
+
+    private fun Player.canEnter(): Boolean {
+        for (item in inventory.items) {
+            if (item.isNotEmpty() && item.id != "ring_of_kinship") {
+                return false
+            }
+        }
+        for (item in equipment.items) {
+            if (item.isNotEmpty() && item.id != "ring_of_kinship") {
+                return false
+            }
+        }
+        return true
+    }
+
+    private suspend fun Player.dungeonSize(playerCount: Int) {
+        if (get("dungeoneering_party_complexity", 1) == 1) {
+            generate(DungeonSize.Small, playerCount)
+            return
+        }
+        choice("What size of dungeon would you like?") {
+            option("Small.") {
+                generate(DungeonSize.Small, playerCount)
+            }
+            option("Medium.") {
+                generate(DungeonSize.Medium, playerCount)
+            }
+            option("Large.") {
+                generate(DungeonSize.Large, playerCount)
+            }
+        }
+    }
+
+    private fun Player.generate(size: DungeonSize, playerCount: Int): Boolean {
+        val floor = get("dungeoneering_party_floor", 1)
+        val complexity = get("dungeoneering_party_complexity", 1)
+        if (!isAdmin()) {
+            if (floor > 11) {
+                message("<red>Floor $floor dungeons are not currently implemented.")
+                return false
+            }
+            if (complexity != 1) {
+                message("<red>Complexity $complexity dungeons are not currently implemented.")
+                return false
+            }
+        }
+        val generator = DungeonGenerator(
+            size = size,
+            floor = floor,
+            complexity = complexity,
+            playerCount = playerCount,
+        )
+
+        val start = System.currentTimeMillis()
+        val skills = DungeonMap.maxSkills(dungeonMembers)
+        val dungeon = generator.generate(skills)
+        if (dungeon == null) {
+            message("<red_orange>Failed to generate ${size.name.lowercase()} c$complexity:f$floor dungeon.")
+            return false
+        }
+        if (get("debug", false)) {
+            println("Dungeon generation took ${System.currentTimeMillis() - start}ms")
+            println("Floor: $floor Size: $size Complexity:$complexity Difficulty: $playerCount")
+            dungeon.prettyPrint()
+        }
+        enter(size, dungeon, complexity, floor)
+        return true
+    }
+
+    private fun Player.enter(size: DungeonSize, dungeon: DungeonMap, complexity: Int, floor: Int) {
+        val instance = when (size) {
+            DungeonSize.Small -> smallInstance(logout = false, timeout = DungeoneeringParty.REJOIN_MINUTES)
+            DungeonSize.Medium -> smallInstance(logout = false, timeout = DungeoneeringParty.REJOIN_MINUTES)
+            DungeonSize.Large -> largeInstance(logout = false, timeout = DungeoneeringParty.REJOIN_MINUTES)
+        }
+        dungeon.region = instance
+        for (member in dungeonMembers) {
+            member.dungeonMap?.ended = true
+            member["dungeon"] = dungeon
+            member.joinInstance(instance)
+            dungeon.players.add(member.index)
+            member.closeInterfaces()
+        }
+        val guideMode = get("dungeoneering_guide_mode", false)
+        val startRoom = dungeon.start()
+        startRoom.open(this, dungeon)
+        val tile = dungeon.startTile()
+        strongQueue("enter_dungeon", 2) {
+            val track = DungeonMusic.ambientTrack(dungeon.theme)
+            for (member in dungeonMembers) {
+                member.enter(size, dungeon, complexity, floor, guideMode, tile, track)
+            }
+        }
+    }
+
+    private fun Player.enter(size: DungeonSize, dungeon: DungeonMap, complexity: Int, floor: Int, guideMode: Boolean, tile: Tile, track: String?) {
+        if (!inDungeoneering) {
+            this["dungeoneering_stored_kinship"] = carriesItem("ring_of_kinship")
+            this["dungeoneering_stored_spellbook"] = spellBook
+        }
+        val hasParty = interfaces.contains("dungeoneering_party") || this["had_party_open", false]
+        DungeoneeringParty.clear(this)
+        this["show_daemonheim_map"] = true
+        this["dungeoneering_party_size"] = size.name
+        this["dungeon_deaths"] = 0
+        KillTracker.start(this, "dungeoneering_floor_timer")
+        this["in_dungeoneering"] = true
+        this["in_multi_combat"] = true
+        open("dungeoneering_spellbook")
+        if (hasParty) {
+            open("dungeoneering_party")
+            clear("had_party_open")
+        }
+        tab(Tab.Inventory)
+        DungeonStartingItems.spawn(this, dungeon, complexity)
+        open("rand_overlay")
+        message("")
+        message("- Welcome to Daemonheim -")
+        message("Floor <purple>$floor</col>    Complexity <purple>$complexity")
+        message("Dungeon Size: <purple>$size")
+        message("Party Size:Difficulty <purple>${dungeonMembers.size}:${dungeon.playerCount}")
+        message("<purple>Guide Mode ${if (guideMode) "ON" else "OFF"}")
+        message("")
+        if (guideMode) {
+            engineQueue("dungeon_start") {
+                when (floor) {
+                    1 -> {
+                        this@enter.statement("You have just entered a dungeon. In the starting room, you'll find a smuggler to trade and store items with, as well as some starting supplies in your backpack and around the room.")
+                        this@enter.statement("If you want to leave, there is a ladder that will take you back to the surface. For more information, speak to the smuggler.")
+                        this@enter.item("katagon_platebody", "Some equipment has been allocated to you. To find out more about an item, use it on the smuggler.")
+                        this@enter.item("katagon_platebody", "If you like the equipment, you can keep it by right-clicking 'Bind' on it. To find out more about the bind system, open the bind setup by right-clicking the smuggler.")
+                    }
+                    2 -> this@enter.item("heim_crab", "Equipment and food have different 'tiers', indicating how good they are (tier 1 being the lowest, tier 11 being the highest). Examine them to find out!")
+                    3 -> this@enter.statement("Did you know that your whole party can read your chat, regardless of how far away they are?")
+                }
+            }
+        }
+        // TODO not clear which dialogue interface was used https://youtu.be/yCSJaU4azVA?t=384
+        tele(tile)
+        playTrack(track)
+        message("<red_orange>Warning: Dungeoneering is experimental and has limited floors, skills, puzzles, monsters and bosses. Please reports any bugs.")
+    }
+}

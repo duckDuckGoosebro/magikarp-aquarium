@@ -1,0 +1,293 @@
+package world.gregs.voidps.engine.entity.character.npc.hunt
+
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet
+import org.rsmod.game.pathfinder.LineValidator
+import world.gregs.voidps.engine.client.ui.hasMenuOpen
+import world.gregs.voidps.engine.client.variable.hasClock
+import world.gregs.voidps.engine.client.variable.start
+import world.gregs.voidps.engine.data.config.HuntModeDefinition
+import world.gregs.voidps.engine.data.definition.HuntModeDefinitions
+import world.gregs.voidps.engine.entity.character.Character
+import world.gregs.voidps.engine.entity.character.CharacterSearch
+import world.gregs.voidps.engine.entity.character.mode.EmptyMode
+import world.gregs.voidps.engine.entity.character.mode.Patrol
+import world.gregs.voidps.engine.entity.character.mode.Wander
+import world.gregs.voidps.engine.entity.character.mode.combat.CombatMovement
+import world.gregs.voidps.engine.entity.character.mode.interact.Interact
+import world.gregs.voidps.engine.entity.character.mode.move.hasLineOfSight
+import world.gregs.voidps.engine.entity.character.mode.move.hasLineOfWalk
+import world.gregs.voidps.engine.entity.character.npc.NPC
+import world.gregs.voidps.engine.entity.character.npc.NPCs
+import world.gregs.voidps.engine.entity.character.player.Player
+import world.gregs.voidps.engine.entity.character.player.Players
+import world.gregs.voidps.engine.entity.character.player.combatLevel
+import world.gregs.voidps.engine.entity.item.floor.FloorItem
+import world.gregs.voidps.engine.entity.item.floor.FloorItems
+import world.gregs.voidps.engine.entity.obj.GameObject
+import world.gregs.voidps.engine.entity.obj.GameObjects
+import world.gregs.voidps.type.Direction
+import world.gregs.voidps.type.Tile
+import world.gregs.voidps.type.Zone
+import world.gregs.voidps.type.random
+import java.util.*
+import kotlin.math.ceil
+import kotlin.random.Random
+
+/**
+ * Picks new target for an [NPC] based on it's [HuntModeDefinition]
+ * Examples of targets are:
+ *   players - regular aggression
+ *   npcs - Godwars or Chaos dwarves
+ *   objects - Pest control ravagers
+ *   floor items - Varrock ash cleaner
+ */
+class Hunting(
+    private val huntModes: HuntModeDefinitions,
+    private val lineValidator: LineValidator,
+    private val seed: Random = random,
+) : Runnable {
+
+    private var count = 0
+    private val playerTargets = arrayOfNulls<Player>(TARGET_CAP)
+    private val npcTargets = arrayOfNulls<NPC>(TARGET_CAP)
+    private val objectTargets = arrayOfNulls<GameObject>(TARGET_CAP)
+    private val itemTargets = arrayOfNulls<FloorItem>(TARGET_CAP)
+
+    override fun run() {
+        for (npc in NPCs) {
+            if (npc.huntCounter == -1) {
+                continue
+            }
+            val mode: String? = npc.huntMode ?: npc.def.huntMode
+            if (mode == null || mode == "") {
+                npc.huntCounter = -1
+                continue
+            }
+            if (npc.delayed || --npc.huntCounter >= 0) {
+                continue
+            }
+            val definition = huntModes.get(mode)
+            npc.huntCounter = definition.rate
+            if (definition.checkNotCombatSelf && (npc.mode is CombatMovement || npc.mode is Interact)) {
+                continue
+            }
+            if (!definition.findKeepHunting && npc.mode !is EmptyMode && npc.mode !is Wander && npc.mode !is Patrol) {
+                continue
+            }
+            val range = npc.def.huntRange
+            when (definition.type) {
+                "player" -> {
+                    val target = findCharacter(npc, Players, range, definition, playerTargets) ?: continue
+                    target.start("hunted", 2)
+                    Hunt.hunt(npc, target, mode)
+                }
+                "npc" -> {
+                    val target = findCharacter(npc, NPCs, range, definition, npcTargets) ?: continue
+                    target.start("hunted", 2)
+                    Hunt.hunt(npc, target, mode)
+                }
+                "object" -> {
+                    listObjects(npc, range, definition)
+                    if (count == 0) {
+                        continue
+                    }
+                    val index = seed.nextInt(0, count)
+                    val target = objectTargets[index] ?: continue
+                    Hunt.hunt(npc, target, mode)
+                }
+                "floor_item" -> {
+                    listItems(npc, range, definition)
+                    if (count == 0) {
+                        continue
+                    }
+                    val index = seed.nextInt(0, count)
+                    val target = itemTargets[index] ?: continue
+                    Hunt.hunt(npc, target, mode)
+                }
+            }
+        }
+        // Just to avoid dangling references
+        playerTargets.fill(null)
+        npcTargets.fill(null)
+        objectTargets.fill(null)
+        itemTargets.fill(null)
+    }
+
+    /**
+     * Returns all the [FloorItem]s in the first [Zone] with possible targets
+     */
+    private fun listItems(npc: NPC, range: Int, definition: HuntModeDefinition) {
+        count = 0
+        for (zone in npc.tile.zone.toRectangle(ceil(range / 8.0).toInt()).toZonesReversed(npc.tile.level)) {
+            for (items in FloorItems.at(zone)) {
+                for (floorItem in items) {
+                    if (!definition.ids.contains(floorItem.id)) {
+                        continue
+                    }
+                    if (canSee(npc, floorItem.tile, 1, 1, definition)) {
+                        if (count < TARGET_CAP) {
+                            itemTargets[count++] = floorItem
+                        }
+                    }
+                }
+            }
+            if (count > 0) {
+                break
+            }
+        }
+    }
+
+    private val visited = IntOpenHashSet()
+    private val queue: Queue<Tile> = ArrayDeque()
+
+    /**
+     * Breadth first searches outwards from the [npc], up to [range] tiles away, for the
+     * first [TARGET_CAP] possible [GameObject] targets.
+     */
+    private fun listObjects(npc: NPC, range: Int, definition: HuntModeDefinition) {
+        count = 0
+        val start = npc.tile
+        visited.clear()
+        visited.add(start.id)
+        queue.clear()
+        queue.add(start)
+        while (queue.isNotEmpty() && count < TARGET_CAP) {
+            val tile = queue.poll()
+            val obj = findTarget(tile, definition, npc)
+            if (obj != null) {
+                objectTargets[count++] = obj
+            }
+            if (tile.distanceTo(start) >= range) {
+                continue
+            }
+            for (direction in Direction.all) {
+                val next = tile.add(direction)
+                if (visited.add(next.id)) {
+                    queue.add(next)
+                }
+            }
+        }
+    }
+
+    private fun findTarget(tile: Tile, definition: HuntModeDefinition, npc: NPC): GameObject? {
+        val obj = GameObjects.getLayer(tile, definition.layer) ?: return null
+        if (!definition.ids.contains(obj.id)) {
+            return null
+        }
+        if (!canSee(npc, obj.tile, obj.width, obj.height, definition)) {
+            return null
+        }
+        return obj
+    }
+
+    fun <T : Character> findCharacter(
+        npc: NPC,
+        characters: CharacterSearch<T>,
+        range: Int,
+        definition: HuntModeDefinition,
+        targets: Array<T?>,
+    ): T? {
+        listCharacters(npc, characters, range, definition, targets)
+        if (count == 0) {
+            return null
+        }
+        val index = seed.nextInt(0, count)
+        return targets[index]
+    }
+
+    /**
+     * Finds the first [TARGET_CAP] possible [Character] targets
+     */
+    fun <T : Character> listCharacters(
+        npc: NPC,
+        characterList: CharacterSearch<T>,
+        range: Int,
+        definition: HuntModeDefinition,
+        targets: Array<T?>,
+    ) {
+        count = 0
+        for (zone in npc.tile.zone.toRectangle(ceil(range / 8.0).toInt()).toZonesReversed(npc.tile.level)) {
+            for (character in characterList.at(zone)) {
+                if (!canHunt(npc, character, definition, range)) {
+                    continue
+                }
+                if (count >= TARGET_CAP) {
+                    return
+                }
+                targets[count++] = character
+            }
+        }
+    }
+
+    /**
+     * Checks if [target] meets all the [definition] requirements
+     */
+    private fun canHunt(
+        npc: NPC,
+        target: Character,
+        definition: HuntModeDefinition,
+        range: Int,
+    ): Boolean {
+        if (target is NPC && npc.index == target.index) {
+            return false
+        }
+        if (definition.checkNotCombat && target.hasClock("hunted")) {
+            return false
+        }
+        // Npc checks from south-west tile
+        if (target.tile.distanceTo(npc.tile) > range) {
+            return false
+        }
+        if (!canSee(npc, target.tile, target.size, target.size, definition)) {
+            return false
+        }
+        if (target is NPC && definition.ids.isNotEmpty() && !definition.ids.contains(target.id)) {
+            return false
+        }
+        if (definition.checkNotTooStrong && targetTooStrong(npc, target)) {
+            return false
+        }
+        if (definition.checkNotCombat && target.hasClock("under_attack") && !target.contains("in_multi_combat")) {
+            return false
+        }
+        if (definition.checkAfk && !target.hasClock("tolerance")) {
+            return false
+        }
+        if (definition.checkNotBusy && (target.delayed || target.hasMenuOpen())) {
+            return false
+        }
+        if (definition.checkSameGod && target is Player && wearsGodArmour(npc, target)) {
+            return false
+        }
+        if (definition.checkZamorak && target is NPC && target.def["god", ""] != "zamorak") {
+            return false
+        }
+        if (definition.checkNotZamorak && target is NPC && target.def["god", ""] == "zamorak") {
+            return false
+        }
+        return true
+    }
+
+    private fun wearsGodArmour(npc: NPC, target: Player): Boolean {
+        val gods = target.get<Set<String>>("gods") ?: return false
+        return gods.contains("zaros") || gods.contains(npc.def["god", ""])
+    }
+
+    private fun targetTooStrong(npc: NPC, character: Character): Boolean = character is Player && character.combatLevel > npc.def.combat * 2
+
+    private fun canSee(
+        npc: NPC,
+        tile: Tile,
+        width: Int,
+        height: Int,
+        definition: HuntModeDefinition,
+    ) = when (definition.checkVisual) {
+        "line_of_sight" -> lineValidator.hasLineOfSight(npc, tile, width, height)
+        "line_of_walk" -> lineValidator.hasLineOfWalk(npc, tile, width, height)
+        else -> true
+    }
+
+    companion object {
+        private const val TARGET_CAP = 20
+    }
+}

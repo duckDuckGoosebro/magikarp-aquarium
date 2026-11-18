@@ -1,0 +1,243 @@
+package content.entity.death
+
+import content.area.misthalin.lumbridge.church.Gravestone
+import content.area.wilderness.inFullPvp
+import content.area.wilderness.inMultiCombat
+import content.bot.isBot
+import content.entity.combat.*
+import content.entity.combat.Target
+import content.entity.combat.hit.directHit
+import content.entity.gfx.areaGfx
+import content.entity.player.effect.energy.MAX_RUN_ENERGY
+import content.entity.player.effect.energy.runEnergy
+import content.entity.player.equip.DragonfireShield
+import content.entity.player.inv.item.tradeable
+import content.entity.player.kept.ItemsKeptOnDeath
+import content.entity.player.logEvent
+import content.entity.proj.shoot
+import content.quest.instance
+import content.quest.instanceLogout
+import content.skill.prayer.getActivePrayerVarKey
+import content.skill.prayer.praying
+import content.skill.summoning.dismissFamiliar
+import world.gregs.voidps.engine.Script
+import world.gregs.voidps.engine.client.clearHinted
+import world.gregs.voidps.engine.client.message
+import world.gregs.voidps.engine.data.Settings
+import world.gregs.voidps.engine.data.definition.Areas
+import world.gregs.voidps.engine.entity.character.Character
+import world.gregs.voidps.engine.entity.character.Death
+import world.gregs.voidps.engine.entity.character.jingle
+import world.gregs.voidps.engine.entity.character.move.tele
+import world.gregs.voidps.engine.entity.character.npc.NPCs
+import world.gregs.voidps.engine.entity.character.player.Player
+import world.gregs.voidps.engine.entity.character.player.Players
+import world.gregs.voidps.engine.entity.character.player.isAdmin
+import world.gregs.voidps.engine.entity.character.player.name
+import world.gregs.voidps.engine.entity.character.player.skill.Skill
+import world.gregs.voidps.engine.entity.item.Item
+import world.gregs.voidps.engine.entity.item.floor.FloorItems
+import world.gregs.voidps.engine.event.AuditLog
+import world.gregs.voidps.engine.inv.*
+import world.gregs.voidps.engine.map.Spiral
+import world.gregs.voidps.engine.queue.strongQueue
+import world.gregs.voidps.engine.timer.toTicks
+import world.gregs.voidps.type.Direction
+import world.gregs.voidps.type.Tile
+import world.gregs.voidps.type.random
+import java.util.concurrent.TimeUnit
+
+class PlayerDeath : Script {
+
+    val respawnTile: Tile
+        get() = Tile(Settings["world.home.x", 0], Settings["world.home.y", 0], Settings["world.home.level", 0])
+
+    init {
+        levelChanged(Skill.Constitution) { _, _, to ->
+            if (to > 0 || queue.contains("death")) {
+                return@levelChanged
+            }
+            dead = true
+            val onDeath = Death.killed(this@levelChanged)
+            strongQueue("death") {
+                steps.clear()
+                val dealer = damageDealers.maxByOrNull { it.value }
+                val killer = dealer?.key
+                AuditLog.event(this, "died", tile, killer)
+                if (killer is Player) {
+                    killer.logEvent("I killed $name.", "I killed the player $name.")
+                }
+                while (true) {
+                    instructions.tryReceive().getOrNull() ?: break
+                }
+                val tile = tile.copy()
+                set("death_tile", tile)
+                retribution(this)
+                wrath(this)
+                message("Oh dear, you are dead!")
+                anim("human_death")
+                queue.clear()
+                clearHinted()
+                delay(5)
+                clearAnim()
+                attackers.clear()
+                damageDealers.clear()
+                jingle("death")
+                timers.stopAll()
+                softTimers.stopAll()
+                clear(getActivePrayerVarKey())
+                dismissFamiliar()
+                if (onDeath.dropItems) {
+                    // Instance exit tile only applies while actually inside one; a leftover
+                    // value would send the grave and every dropped item to that old tile.
+                    val tile = if (instance() != null) instanceLogout() ?: tile else tile
+                    dropItems(this, killer, tile)
+                }
+                levels.clear()
+                runEnergy = MAX_RUN_ENERGY
+                if (onDeath.teleport != null) {
+                    tele(onDeath.teleport!!)
+                } else {
+                    tele(respawnTile)
+                }
+                face(Direction.SOUTH, update = false)
+                dead = false
+            }
+        }
+    }
+
+    fun dropItems(player: Player, killer: Character?, tile: Tile) {
+        if (player.isAdmin()) {
+            return
+        }
+        if (!Settings["combat.dropItemsOnDeath", true]) {
+            return
+        }
+        val items = ItemsKeptOnDeath.getAllOrdered(player)
+        val kept = ItemsKeptOnDeath.kept(player, items)
+
+        // Remove kept so they aren't dropped
+        for (item in kept) {
+            if (player.inventory.remove(item.id, item.amount) || player.equipment.remove(item.id, item.amount)) {
+                continue
+            }
+        }
+
+        // Only the shields being dropped lose their charges, a protected one stays charged
+        DragonfireShield.releaseCharges(player)
+
+        // inFullPvp covers wilderness + the Clan Wars FFA dangerous arena: no grave, drops go to the killer.
+        val pvpDrop = player.inFullPvp
+        // Spawn grave
+        val time = when {
+            pvpDrop && killer is Player -> 0
+            tile in Areas["corporeal_beasts_lair"] -> TimeUnit.SECONDS.toTicks(210)
+            else -> Gravestone.spawn(player, tile)
+        }
+        // Drop everything
+        drop(player, Item("bones"), tile, pvpDrop, killer, time)
+        drop(player, player.inventory, tile, pvpDrop, killer, time)
+        drop(player, player.equipment, tile, pvpDrop, killer, time)
+        // Clear everything
+        player.inventory.clear()
+        player.equipment.clear()
+
+        // Return kept items
+        for (item in kept) {
+            AuditLog.event(player, "kept", item)
+            player.inventory.add(item.id, item.amount)
+        }
+    }
+
+    fun drop(player: Player, inventory: Inventory, tile: Tile, inWilderness: Boolean, killer: Character?, time: Int) {
+        for (item in inventory.items) {
+            if (item.isEmpty()) {
+                continue
+            }
+            drop(player, item, tile, inWilderness, killer, time)
+        }
+    }
+
+    fun drop(
+        player: Player,
+        item: Item,
+        tile: Tile,
+        inWilderness: Boolean,
+        killer: Character?,
+        time: Int,
+    ) {
+        AuditLog.event(player, "lost", item)
+        if (inWilderness && killer is Player) {
+            // PvP bot kills: drops stay private to the killer until despawn — never revealed to others.
+            // Real players keep the standard 180-tick private window before becoming public loot.
+            val reveal = if (player.isBot) FloorItems.NEVER else 180
+            if (item.tradeable) {
+                FloorItems.add(tile, item.id, item.amount, revealTicks = reveal, disappearTicks = 240, owner = killer)
+            } else {
+                FloorItems.add(tile, "coins", item.amount * item.def.cost, revealTicks = reveal, disappearTicks = 240, owner = killer)
+            }
+        } else {
+            FloorItems.add(tile, item.id, item.amount, revealTicks = time, disappearTicks = time + 60, owner = player)
+        }
+    }
+
+    // TODO get correct graphic heights, delays and curves
+
+    fun retribution(source: Player) {
+        if (!source.praying("retribution")) {
+            return
+        }
+        source.gfx("retribution")
+        val maxHit = (source.levels.get(Skill.Prayer) * 2.5).toInt()
+        val target = source.target
+        for (direction in Direction.all) {
+            val tile = source.tile.add(direction)
+            if (source.inMultiCombat) {
+                hitCharacters(tile, source, maxHit)
+            } else if (target?.tile == tile) {
+                source.directHit(target, random.nextInt(maxHit))
+            }
+            source.shoot("retribution_splash", tile, height = 30, endHeight = 30)
+        }
+    }
+
+    fun wrath(source: Player) {
+        if (!source.praying("wrath")) {
+            return
+        }
+        source.gfx("wrath")
+        for (direction in Direction.all) {
+            val inner = source.tile.add(direction)
+            val outer = inner.add(direction)
+            source.shoot("wrath_shoot", outer, height = 10, endHeight = 0)
+            if (direction.isDiagonal()) {
+                areaGfx("wrath_splash", inner, delay = 30)
+            }
+            areaGfx("wrath_splash", outer, delay = 10)
+        }
+        val maxHit = (source.levels.getMax(Skill.Prayer) * 2.5).toInt()
+        if (source.inMultiCombat) {
+            for (tile in Spiral.spiral(source.tile, 5)) {
+                hitCharacters(tile, source, maxHit)
+            }
+        } else {
+            val target = source.target ?: return
+            if (source.tile.distanceTo(target.tile) <= 2) {
+                source.directHit(target, random.nextInt(maxHit))
+            }
+        }
+    }
+
+    fun hitCharacters(tile: Tile, source: Player, maxHit: Int) {
+        for (player in Players.at(tile)) {
+            if (Target.attackable(source, player)) {
+                source.directHit(player, random.nextInt(maxHit))
+            }
+        }
+        for (npc in NPCs.at(tile)) {
+            if (Target.attackable(source, npc)) {
+                source.directHit(npc, random.nextInt(maxHit))
+            }
+        }
+    }
+}

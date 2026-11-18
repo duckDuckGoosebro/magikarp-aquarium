@@ -1,0 +1,106 @@
+package world.gregs.voidps.engine.client.instruction.handle
+
+import com.github.michaelbull.logging.InlineLogger
+import world.gregs.voidps.cache.Definition
+import world.gregs.voidps.cache.definition.Parameterized
+import world.gregs.voidps.cache.definition.Transforms
+import world.gregs.voidps.engine.client.instruction.InstructionHandler
+import world.gregs.voidps.engine.client.ui.closeInterfaces
+import world.gregs.voidps.engine.data.definition.DefinitionsDecoder
+import world.gregs.voidps.engine.data.definition.ObjectDefinitions
+import world.gregs.voidps.engine.data.definition.VariableDefinitions
+import world.gregs.voidps.engine.entity.character.mode.interact.NPCOnObjectInteract
+import world.gregs.voidps.engine.entity.character.mode.interact.PlayerOnObjectInteract
+import world.gregs.voidps.engine.entity.character.npc.NPC
+import world.gregs.voidps.engine.entity.character.player.Player
+import world.gregs.voidps.engine.entity.obj.GameObject
+import world.gregs.voidps.engine.entity.obj.GameObjects
+import world.gregs.voidps.network.client.instruction.InteractObject
+import world.gregs.voidps.type.Tile
+
+class ObjectOptionHandler : InstructionHandler<InteractObject>() {
+
+    private val logger = InlineLogger()
+
+    override fun validate(player: Player, instruction: InteractObject): Boolean {
+        if (player.delayed) {
+            return false
+        }
+        val (objectId, x, y, option) = instruction
+        val tile = player.tile.copy(x = x, y = y)
+        val target = getObject(tile, objectId)
+        if (target == null) {
+            logger.warn { "Invalid object $objectId $tile" }
+            return false
+        }
+        val definition = getDefinition(player, ObjectDefinitions, target.def, target.def)
+        val options = definition.options
+        if (options == null) {
+            logger.warn { "Invalid object interaction $target $option ${definition.options.contentToString()}" }
+            return false
+        }
+        val index = option - 1
+        val selectedOption = options.getOrNull(index)
+        if (selectedOption == null) {
+            logger.warn { "Invalid object option $target $index ${options.contentToString()}" }
+            return false
+        }
+        player.closeInterfaces()
+        player.interactObject(target, selectedOption)
+        return true
+    }
+
+    private fun getObject(tile: Tile, objectId: Int): GameObject? {
+        val obj = GameObjects.findOrNull(tile, objectId)
+        if (obj == null) {
+            val definition = ObjectDefinitions.getOrNull(objectId)
+            return if (definition == null) {
+                GameObjects.findOrNull(tile, objectId.toString())
+            } else {
+                GameObjects.findOrNull(tile, definition.id)
+            }
+        }
+        return obj
+    }
+
+    companion object {
+        private fun getVarbitIndex(player: Player, id: Int): Int {
+            val key = VariableDefinitions.getVarbit(id) ?: return 0
+            return getInt(key, player)
+        }
+
+        private fun getVarpIndex(player: Player, id: Int): Int {
+            val key = VariableDefinitions.getVarp(id) ?: return 0
+            return getInt(key, player)
+        }
+
+        private fun getInt(key: String, player: Player): Int {
+            val variable = VariableDefinitions.get(key) ?: return 0
+            val value = player.variables.get<Any>(key) ?: variable.defaultValue ?: return 0
+            return variable.values.toInt(value)
+        }
+
+        fun <T, D : DefinitionsDecoder<T>> getDefinition(player: Player, definitions: D, definition: T, def: Transforms): T where T : Definition, T : Parameterized {
+            val transforms = def.transforms ?: return definition
+            val varbit = def.varbit
+            val varp = def.varp
+            if (varbit == -1 && varp == -1) {
+                return definition
+            }
+            val index = if (varbit != -1) getVarbitIndex(player, varbit) else getVarpIndex(player, varp)
+            var transform = transforms.getOrNull(index) ?: -1
+            if (transform == -1) {
+                transform = transforms.last()
+            }
+            return definitions.get(transform)
+        }
+    }
+}
+
+fun Player.interactObject(target: GameObject, option: String, approachRange: Int? = null) {
+    mode = PlayerOnObjectInteract(target, option, this, approachRange)
+}
+
+fun NPC.interactObject(target: GameObject, option: String, approachRange: Int? = null) {
+    mode = NPCOnObjectInteract(target, option, this, approachRange)
+}

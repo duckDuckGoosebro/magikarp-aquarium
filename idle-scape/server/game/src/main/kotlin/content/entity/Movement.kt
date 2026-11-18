@@ -1,0 +1,130 @@
+package content.entity
+
+import content.area.misthalin.Border
+import world.gregs.voidps.engine.Script
+import world.gregs.voidps.engine.client.instruction.instruction
+import world.gregs.voidps.engine.client.message
+import world.gregs.voidps.engine.client.ui.closeInterfaces
+import world.gregs.voidps.engine.data.Settings
+import world.gregs.voidps.engine.data.definition.Areas
+import world.gregs.voidps.engine.entity.character.Character
+import world.gregs.voidps.engine.entity.character.mode.EmptyMode
+import world.gregs.voidps.engine.entity.character.mode.PauseMode
+import world.gregs.voidps.engine.entity.character.mode.interact.Interact
+import world.gregs.voidps.engine.entity.character.mode.move.target.TargetStrategy
+import world.gregs.voidps.engine.entity.character.npc.NPCs
+import world.gregs.voidps.engine.entity.character.player.Players
+import world.gregs.voidps.engine.map.collision.Collisions
+import world.gregs.voidps.network.client.instruction.Walk
+import world.gregs.voidps.type.Distance.nearestTo
+import world.gregs.voidps.type.Zone
+import world.gregs.voidps.type.area.Rectangle
+
+class Movement : Script {
+
+    val borders = mutableMapOf<Zone, Rectangle>()
+
+    init {
+        playerSpawn {
+            if (Players.add(this) && playerCollision) {
+                add(this)
+            }
+        }
+
+        npcSpawn {
+            if (npcCollision) {
+                add(this)
+            }
+        }
+
+        npcMoved(handler = NPCs::update)
+        moved(handler = Players::update)
+
+        worldSpawn {
+            for (border in Areas.tagged("border")) {
+                val passage = border.area as Rectangle
+                for (zone in passage.toZones()) {
+                    borders[zone] = passage
+                }
+            }
+        }
+
+        instruction<Walk> { player ->
+            if (player.delayed) {
+                return@instruction
+            }
+            val blocked: String? = player["no_movement_message"]
+            if (blocked != null) {
+                player.message(blocked)
+                return@instruction
+            }
+            if (player.mode is Interact) {
+                player.clearAnim()
+            }
+            player.closeInterfaces()
+            player.clearWatch()
+            player.queue.clearWeak()
+            player.suspension = null
+            if (minimap && !player["a_world_in_microcosm_task", false]) {
+                player["a_world_in_microcosm_task"] = true
+            }
+
+            val target = player.tile.copy(x, y)
+            val border = borders[target.zone]
+            if (border != null && (target in border || player.tile in border)) {
+                val tile = border.nearestTo(player.tile)
+                val endSide = Border.getOppositeSide(border, tile)
+                player.walkTo(endSide, noCollision = true, forceWalk = true)
+            } else {
+                if (player.tile == target && player.mode != EmptyMode && player.mode != PauseMode) {
+                    player.mode = EmptyMode
+                }
+                player.walkTo(target, forceWalk = TargetStrategy.noRun(player))
+            }
+            if (player.suspension == null) {
+                player.walkTrigger()
+            }
+        }
+
+        playerDespawn {
+            if (playerCollision) {
+                remove(this)
+            }
+        }
+
+        npcDeath {
+            remove(this)
+        }
+
+        npcDespawn {
+            if (npcCollision) {
+                remove(this)
+            }
+        }
+    }
+
+    fun add(char: Character) {
+        val mask = char.collisionFlag
+        val size = char.size
+        for (x in char.tile.x until char.tile.x + size) {
+            for (y in char.tile.y until char.tile.y + size) {
+                Collisions.add(x, y, char.tile.level, mask)
+            }
+        }
+    }
+
+    fun remove(char: Character) {
+        val mask = char.collisionFlag
+        val size = char.size
+        for (x in 0 until size) {
+            for (y in 0 until size) {
+                Collisions.remove(char.tile.x + x, char.tile.y + y, char.tile.level, mask)
+            }
+        }
+    }
+
+    companion object {
+        private val npcCollision by Settings.bool("world.npcs.collision", false)
+        private val playerCollision by Settings.bool("world.players.collision", false)
+    }
+}

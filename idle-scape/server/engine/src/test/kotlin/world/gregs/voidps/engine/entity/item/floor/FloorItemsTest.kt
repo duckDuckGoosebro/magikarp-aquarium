@@ -1,0 +1,335 @@
+package world.gregs.voidps.engine.entity.item.floor
+
+import io.mockk.mockkObject
+import io.mockk.unmockkObject
+import io.mockk.verify
+import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assertions.*
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
+import world.gregs.voidps.cache.definition.data.ItemDefinition
+import world.gregs.voidps.engine.client.update.batch.ZoneBatchUpdates
+import world.gregs.voidps.engine.data.definition.ItemDefinitions
+import world.gregs.voidps.engine.entity.character.player.Player
+import world.gregs.voidps.engine.entity.character.player.Players
+import world.gregs.voidps.network.login.protocol.encode.zone.FloorItemAddition
+import world.gregs.voidps.network.login.protocol.encode.zone.FloorItemRemoval
+import world.gregs.voidps.network.login.protocol.encode.zone.FloorItemReveal
+import world.gregs.voidps.network.login.protocol.encode.zone.FloorItemUpdate
+import world.gregs.voidps.type.Tile
+import world.gregs.voidps.type.Zone
+
+class FloorItemsTest {
+
+    @BeforeEach
+    fun setup() {
+        FloorItems.clear()
+        mockkObject(ZoneBatchUpdates)
+        val definitions = arrayOf(
+            ItemDefinition.EMPTY,
+            ItemDefinition(1, cost = 10),
+            ItemDefinition(2, stackable = 1),
+            ItemDefinition(3, cost = 10),
+            ItemDefinition(4, cost = 5),
+        )
+        ItemDefinitions.init(definitions).apply {
+            ids = mapOf("item" to 1, "stackable" to 2, "equal_item" to 3, "cheap_item" to 4)
+        }
+    }
+
+    @Test
+    fun `Add floor items`() {
+        val first = FloorItems.add(Tile.EMPTY, "item")
+        val second = FloorItems.add(Tile(10, 10, 1), "item", owner = "player")
+        FloorItems.run()
+
+        assertEquals(FloorItems.at(Tile.EMPTY).first(), first)
+        assertEquals(FloorItems.at(Tile(10, 10, 1)).first(), second)
+        assertTrue(FloorItems.at(Tile(100, 100)).isEmpty())
+        verify {
+            ZoneBatchUpdates.add(Zone.EMPTY, FloorItemAddition(tile = 0, id = 1, amount = 1, owner = null))
+            ZoneBatchUpdates.add(Zone(1, 1, 1), FloorItemAddition(tile = 268599306, id = 1, amount = 1, owner = "player"))
+        }
+    }
+
+    @Test
+    fun `Add floor items in order`() {
+        val first = FloorItems.add(Tile.EMPTY, "item1")
+        val second = FloorItems.add(Tile.EMPTY, "item2")
+        FloorItems.run()
+
+        val items = FloorItems.at(Tile.EMPTY)
+        assertEquals(items[0], first)
+        assertEquals(items[1], second)
+    }
+
+    @Test
+    fun `Adding two private stackable items combines them`() {
+        FloorItems.add(Tile.EMPTY, "stackable", owner = "player", disappearTicks = 5, revealTicks = 5)
+        FloorItems.run()
+        FloorItems.add(Tile.EMPTY, "stackable", owner = "player", disappearTicks = 10, revealTicks = 10)
+        FloorItems.run()
+
+        val floorItem = FloorItems.at(Tile.EMPTY).first()
+        assertEquals(floorItem.id, "stackable")
+        assertEquals(floorItem.amount, 2)
+        assertEquals(floorItem.disappearTicks, 5)
+        assertEquals(floorItem.lifecycle, 3)
+        assertEquals(floorItem.owner, "player")
+        verify {
+            ZoneBatchUpdates.add(
+                Zone.EMPTY,
+                FloorItemUpdate(
+                    tile = 0,
+                    id = 2,
+                    stack = 1,
+                    combined = 2,
+                    owner = "player",
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun `Don't combine non-stackable items`() {
+        val first = FloorItems.add(Tile.EMPTY, "item", owner = "player")
+        val second = FloorItems.add(Tile.EMPTY, "item", owner = "player")
+        FloorItems.run()
+        val items = FloorItems.at(Tile.EMPTY)
+        assertEquals(first, items[0])
+        assertEquals(second, items[1])
+    }
+
+    @Test
+    fun `Don't combine two overflowing two private stacks`() {
+        val first = FloorItems.add(Tile.EMPTY, "item", Int.MAX_VALUE - 10, owner = "player")
+        val second = FloorItems.add(Tile.EMPTY, "item", 20, owner = "player")
+        FloorItems.run()
+
+        val items = FloorItems.at(Tile.EMPTY)
+        assertEquals(first, items[0])
+        assertEquals(second, items[1])
+    }
+
+    @Test
+    fun `Public items aren't combined`() {
+        val first = FloorItems.add(Tile.EMPTY, "item", disappearTicks = 5, revealTicks = -1)
+        val second = FloorItems.add(Tile.EMPTY, "item", owner = "player", disappearTicks = 10, revealTicks = 10)
+        FloorItems.run()
+
+        val items = FloorItems.at(Tile.EMPTY)
+        assertEquals(first, items[0])
+        assertEquals(second, items[1])
+    }
+
+    @Test
+    fun `Remove floor item`() {
+        val first = FloorItems.add(Tile.EMPTY, "item1")
+        val second = FloorItems.add(Tile.EMPTY, "item1")
+        FloorItems.run()
+
+        assertTrue(FloorItems.remove(first))
+        FloorItems.run()
+        val items = FloorItems.at(Tile.EMPTY)
+        assertFalse(items.contains(first))
+        assertTrue(items.contains(second))
+        verify {
+            ZoneBatchUpdates.add(Zone.EMPTY, FloorItemRemoval(tile = 0, id = -1, owner = null))
+        }
+    }
+
+    @Test
+    fun `Remove lowest value item when limit exceeded`() {
+        repeat(128) {
+            FloorItems.add(Tile.EMPTY, if (it == 25) "cheap_item" else "item")
+        }
+        FloorItems.run()
+
+        val item = FloorItems.add(Tile.EMPTY, "item", owner = "player")
+        FloorItems.run()
+
+        val items = FloorItems.at(Tile.EMPTY)
+        assertTrue(items.none { it.def.cost == 5 })
+        assertEquals(item, items[127])
+    }
+
+    @Test
+    fun `Equal value items are unstacked when limit exceeded`() {
+        repeat(128 * 2) {
+            FloorItems.add(Tile.EMPTY, if (it >= 128) "equal_item" else "item")
+        }
+
+        val items = FloorItems.at(Tile.EMPTY)
+        assertTrue(items.none { it.id == "item" })
+    }
+
+    @Test
+    fun `Clear sends batch update`() {
+        FloorItems.add(Tile.EMPTY, "item")
+        FloorItems.run()
+
+        FloorItems.clear()
+        FloorItems.run()
+
+        val items = FloorItems.at(Tile.EMPTY)
+        assertTrue(items.isEmpty())
+        verify {
+            ZoneBatchUpdates.add(Zone.EMPTY, FloorItemRemoval(tile = 0, id = 1, owner = null))
+        }
+    }
+
+    @Test
+    fun `Private items are revealed after timer`() {
+        Players.clear()
+        val player = Player(accountName = "player")
+        Players.add(player)
+        val item = FloorItems.add(Tile.EMPTY, "item", revealTicks = 10, owner = "player")
+
+        repeat(10) {
+            assertEquals("player", item.owner)
+            FloorItems.run()
+        }
+
+        assertNull(item.owner)
+        assertEquals(0, item.lifecycle)
+        verify {
+            ZoneBatchUpdates.add(Zone.EMPTY, FloorItemReveal(0, 1, 1, player.index))
+        }
+        Players.clear()
+    }
+
+    @Test
+    fun `Public items are removed after timer`() {
+        val item = FloorItems.add(Tile.EMPTY, "item", disappearTicks = 10)
+
+        repeat(9) {
+            FloorItems.run()
+        }
+        assertTrue(FloorItems.at(Tile.EMPTY).contains(item))
+        FloorItems.run()
+
+        assertFalse(FloorItems.at(Tile.EMPTY).contains(item))
+    }
+
+    @Test
+    fun `Removal timer isn't counting down while reveal timer is active`() {
+        val item = FloorItems.add(Tile.EMPTY, "item", revealTicks = 10, disappearTicks = 10, owner = "player")
+
+        repeat(10) {
+            assertEquals("player", item.owner)
+            FloorItems.run()
+        }
+
+        repeat(5) {
+            assertNull(item.owner)
+            FloorItems.run()
+        }
+
+        assertEquals(-5, item.lifecycle)
+        assertTrue(FloorItems.at(Tile.EMPTY).contains(item))
+    }
+
+    @Test
+    fun `Public items revealed and removed after timers`() {
+        val item = FloorItems.add(Tile.EMPTY, "item", revealTicks = 10, disappearTicks = 10, owner = "player")
+
+        repeat(10) {
+            FloorItems.run()
+        }
+        assertTrue(FloorItems.at(Tile.EMPTY).contains(item))
+        assertNull(item.owner)
+        assertEquals(-10, item.lifecycle)
+        repeat(10) {
+            FloorItems.run()
+        }
+        assertFalse(FloorItems.at(Tile.EMPTY).contains(item))
+    }
+
+    @Test
+    fun `Private items without reveal timer are removed`() {
+        val item = FloorItems.add(Tile.EMPTY, "item", disappearTicks = 3, owner = "player")
+
+        repeat(3) {
+            assertTrue(FloorItems.at(Tile.EMPTY).contains(item))
+            assertEquals("player", item.owner)
+            FloorItems.run()
+        }
+        assertFalse(FloorItems.at(Tile.EMPTY).contains(item))
+    }
+
+    @Test
+    fun `Removed spawn items are hidden until timer completes`() {
+        val item = FloorItems.add(Tile.EMPTY, "item", respawnTicks = 3)
+        assertTrue(FloorItems.remove(item))
+
+        assertSame(item, FloorItems.at(Tile.EMPTY).single())
+        assertEquals("", item.owner)
+        repeat(3) {
+            assertEquals("", item.owner)
+            FloorItems.run()
+        }
+        assertNull(item.owner)
+        assertEquals(0, item.lifecycle)
+        verify {
+            ZoneBatchUpdates.add(Zone.EMPTY, FloorItemRemoval(tile = 0, id = 1, owner = null))
+            ZoneBatchUpdates.add(Zone.EMPTY, FloorItemReveal(0, 1, 1, -1))
+        }
+    }
+
+    @Test
+    fun `Hidden spawn items can't be removed again`() {
+        val item = FloorItems.add(Tile.EMPTY, "item", respawnTicks = 3)
+        assertTrue(FloorItems.remove(item))
+        assertFalse(FloorItems.remove(item))
+        assertEquals(3, item.lifecycle)
+    }
+
+    @Test
+    fun `Non-spawn items don't respawn`() {
+        val item = FloorItems.add(Tile.EMPTY, "item")
+        FloorItems.remove(item)
+
+        assertTrue(FloorItems.at(Tile.EMPTY).isEmpty())
+    }
+
+    @Test
+    fun `Spawned items aren't replaced when limit exceeded`() {
+        val spawn = FloorItems.add(Tile.EMPTY, "cheap_item", respawnTicks = 10)
+        repeat(127) {
+            FloorItems.add(Tile.EMPTY, "item")
+        }
+
+        val item = FloorItems.add(Tile.EMPTY, "equal_item")
+
+        val items = FloorItems.at(Tile.EMPTY)
+        assertEquals(128, items.size)
+        assertSame(spawn, items[0])
+        assertTrue(items.contains(item))
+    }
+
+    @Test
+    fun `Items aren't added to a tile full of spawns`() {
+        repeat(128) {
+            FloorItems.add(Tile.EMPTY, "cheap_item", respawnTicks = 10)
+        }
+
+        val item = FloorItems.add(Tile.EMPTY, "item")
+
+        val items = FloorItems.at(Tile.EMPTY)
+        assertEquals(128, items.size)
+        assertFalse(items.contains(item))
+    }
+
+    @Test
+    fun `Clearing doesn't respawn items`() {
+        FloorItems.add(Tile.EMPTY, "item", respawnTicks = 3)
+        FloorItems.clear()
+
+        assertTrue(FloorItems.at(Tile.EMPTY).isEmpty())
+    }
+
+    @AfterEach
+    fun teardown() {
+        unmockkObject(ZoneBatchUpdates)
+    }
+}

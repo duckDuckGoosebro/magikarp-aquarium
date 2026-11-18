@@ -1,0 +1,229 @@
+package content.skill.dungeoneering
+
+import content.entity.player.dialogue.type.statement
+import content.entity.world.music.MusicTracks
+import content.entity.world.music.autoplay
+import content.entity.world.music.playTrack
+import world.gregs.voidps.engine.Script
+import world.gregs.voidps.engine.client.instruction.handle.interactObject
+import world.gregs.voidps.engine.client.message
+import world.gregs.voidps.engine.entity.character.mode.interact.PlayerOnObjectInteract
+import world.gregs.voidps.engine.entity.character.move.tele
+import world.gregs.voidps.engine.entity.character.player.Player
+import world.gregs.voidps.engine.entity.character.player.chat.noInterest
+import world.gregs.voidps.engine.entity.obj.GameObject
+import world.gregs.voidps.engine.entity.obj.GameObjects
+import world.gregs.voidps.engine.entity.obj.ObjectLayer
+import world.gregs.voidps.engine.entity.obj.remove
+import world.gregs.voidps.engine.entity.obj.replace
+import world.gregs.voidps.engine.inv.inventory
+import world.gregs.voidps.engine.inv.remove
+import world.gregs.voidps.type.Direction
+import world.gregs.voidps.type.Tile
+
+class DungeonDoors(val tracks: MusicTracks) : Script {
+    init {
+        objectOperate("Enter", "*door_frozen,*door_abandoned,*door_furnished,*door_occult,*door_warped", handler = ::handleDoor)
+        objectApproach("Enter", "*door_frozen,*door_abandoned,*door_furnished,*door_occult,*door_warped", handler = ::handleDoor)
+        objectOperate("Open", "*door_frozen,*door_abandoned,*door_furnished,*door_occult,*door_warped", handler = ::handleDoor)
+        objectApproach("Open", "*door_frozen,*door_abandoned,*door_furnished,*door_occult,*door_warped", handler = ::handleDoor)
+
+        /*
+            Locked doors
+         */
+
+        objectOperate("Unlock", "orange_*_door,silver_*_door,yellow_*_door,green_*_door,blue_*_door,purple_*_door,crimson_*_door,gold_*_door") { (target) ->
+            val dungeon = dungeonMap ?: return@objectOperate
+            val room = dungeon.room(tile) ?: return@objectOperate
+            val door = room.doors[target.rotation] ?: return@objectOperate
+            if (door !is DungeonDoor.Locked) {
+                return@objectOperate
+            }
+            if (!inventory.remove(door.key)) {
+                if (get("dungeoneering_guide_mode", false)) {
+                    statement("You need to find a key that matches the symbol on the door. Keep your eyes open for it in each room of the dungeon.")
+                }
+                message("You don't have the correct key.")
+                return@objectOperate
+            }
+            target.remove()
+            anim("unlock_dung_door")
+            message("You unlock the door.")
+        }
+
+        objectOperate("Open", "orange_*_door_*,silver_*_door_*,yellow_*_door_*,green_*_door_*,blue_*_door_*,purple_*_door_*,crimson_*_door_*,gold_*_door_*", handler = ::handleDoor)
+        objectApproach("Open", "orange_*_door_*,silver_*_door_*,yellow_*_door_*,green_*_door_*,blue_*_door_*,purple_*_door_*,crimson_*_door_*,gold_*_door_*", handler = ::handleDoor)
+
+        /*
+            Skill doors
+         */
+
+        objectOperate("Force-bar", "barred_door_*") { (target) ->
+            target.replace(target.id.replace("barred_door", "unbarred_door"))
+            message("You pull the plank off of the door.")
+        }
+
+        objectOperate("Imbue-energy", "runed_door_*") { (target) ->
+            anim("bind_runes")
+            gfx("bind_runes")
+            delay(2)
+            target.remove()
+        }
+
+        objectOperate("Repair", "collapsing_doorframe_*") { (target) ->
+            anim("repair_collapsing_doorframe")
+            delay(2)
+            target.replace(target.id.replace("collapsing_doorframe", "repaired_door"))
+            message("You reforge the key and use it to unlock the door.")
+        }
+
+        objectOperate("Disarm", "locked_door_*") { (target) ->
+            anim("disarm_locked_door")
+            delay(2)
+            target.replace(target.id.replace("locked_door", "unlocked_door"))
+        }
+
+        objectOperate("Pick-lock", "padlocked_door_*") { (target) ->
+            anim("pick_padlocked_door")
+            delay(2)
+            target.replace(target.id.replace("padlocked_door", "picked_door"))
+        }
+
+        objectOperate("Fix-pulley", "broken_pulley_door_*") { (target) ->
+            anim("disarm_locked_door")
+            delay(2)
+            target.replace(target.id.replace("broken_pulley", "fixed_pulley"))
+            // https://youtu.be/ntOjjRjAh-s?t=495
+            message("You repair the pulley rope, allowing the door to be raised.")
+        }
+
+        objectOperate("Mine", "pile_of_rocks_*") { (target) ->
+            target.remove()
+            message("You mine the obstruction, clearing the path.")
+        }
+
+        objectOperate("Repair-key", "broken_key_door_*") { (target) ->
+            anim("fix_broken_key_door")
+            delay(2)
+            target.replace(target.id.replace("broken_key_door", "fixed_key_door"))
+        }
+
+        objectOperate("Burn", "flammable_debris_*") { (target) ->
+            target.remove()
+            // https://youtu.be/C5G4sXKrVSI?t=141
+            message("You burn the pile of debris, clearing the path.")
+        }
+
+        objectOperate("Chop-down", "wooden_barricade_*") { (target) ->
+            target.replace(target.id.replace("wooden_barricade", "cleared_barricade_door"))
+        }
+
+        objectOperate("Prune-vines", "vine_covered_door_*") { (target) ->
+            anim("pruning_mid_high")
+            delay(2)
+            target.remove()
+            clearAnim()
+        }
+
+        objectOperate("Dismiss", "ramokee_exile_*") { (target) ->
+            anim("superheat_item")
+            delay(2)
+            target.remove()
+        }
+
+        objectOperate("Dispel", "magical_barrier_*") { (target) ->
+            anim("lunar_cast")
+            delay(2)
+            // obj anim 13551, 13550
+            target.remove()
+        }
+
+        objectOperate("Exorcise", "dark_spirit_*") { (target) ->
+            anim("altar_pray")
+            delay(2)
+            target.remove() // obj anim 13557/13556
+        }
+
+        objectOperate("Add-compound", "liquid_lock_door_*") { (target) ->
+            anim("open_liquid_lock_door")
+            delay(2)
+            target.replace(target.id.replace("liquid_lock_door", "exploded_liquid_door"))
+        }
+    }
+
+    private suspend fun handleDoor(player: Player, interact: PlayerOnObjectInteract) {
+        val target = interact.target
+        val dir = direction(target) ?: return
+        val under = GameObjects.getLayer(target.tile.add(dir.inverse()), ObjectLayer.GROUND)
+        if (under == null) {
+            player.approachRange(1)
+            if (target.id.startsWith("guardian") && DungeonRoom.hasGuardian(player.tile)) {
+                player.message("The door won't unlock until all of the guardians in the room have been slain.")
+                return
+            }
+            player.openDoor(target)
+            return
+        }
+        // TODO handle in method with delay and then can open after?
+        if (under.id.endsWith("_door")) {
+            player.interactObject(under, "Unlock")
+        } else if (under.id.startsWith("runed_door_")) {
+            player.interactObject(under, "Imbue-energy")
+        } else if (under.id.startsWith("pile_of_rocks_")) {
+            player.interactObject(under, "Mine")
+        } else if (under.id.startsWith("flammable_debris_")) {
+            player.interactObject(under, "Burn")
+        } else if (under.id.startsWith("vine_covered_door_")) {
+            player.interactObject(under, "Prune-vines")
+        } else if (under.id.startsWith("ramokee_exile_")) {
+            player.interactObject(under, "Dismiss")
+        } else if (under.id.startsWith("magical_barrier_")) {
+            player.interactObject(under, "Dispel")
+        } else if (under.id.startsWith("dark_spirit_")) {
+            player.interactObject(under, "Exorcise")
+        } else {
+            player.noInterest()
+        }
+    }
+
+    private suspend fun Player.openDoor(target: GameObject) {
+        val dungeon = dungeonMap ?: return
+        val direction = direction(target) ?: return
+        val room = dungeon.room(target.tile) ?: return
+        val adj = room.adjacentRooms[target.rotation] ?: return
+        if (!adj.open) {
+            adj.open(this, dungeon)
+            return
+        }
+        if (adj.type == DungeonRoomType.Boss && get("dungeoneering_guide_mode", false)) {
+            statement("You are about to enter a boss room. Make sure you are prepared for a challenge.")
+        }
+        if (direction.isHorizontal()) {
+            tele(Tile(x = target.tile.x + direction.delta.x * 2, y = tile.y.coerceIn(target.tile.y, target.tile.y + 1)))
+        } else {
+            tele(Tile(x = tile.x.coerceIn(target.tile.x, target.tile.x + 1), y = target.tile.y + direction.delta.y * 2))
+        }
+        // Switch songs when going between combat and ambient rooms
+        if (!autoplay) {
+            val currentTrack = get("current_track", -1)
+            val track = tracks.tracks.firstOrNull { it?.indexes?.contains(currentTrack) ?: false }
+            val prefix = track?.name?.substringBefore("_") ?: "null"
+            val expected = if (adj.monsters > 0) DungeonMusic.combatPrefix(dungeon.theme) else DungeonMusic.ambientPrefix(dungeon.theme)
+            val name = when {
+                prefix == expected -> null
+                adj.type == DungeonRoomType.Boss && adj.monsters > 0 -> adj.name
+                adj.monsters > 0 -> DungeonMusic.combatTrack(dungeon.theme)
+                else -> DungeonMusic.ambientTrack(dungeon.theme)
+            }
+            playTrack(name)
+        }
+    }
+
+    private fun direction(target: GameObject): Direction? = when (target.rotation) {
+        0 -> Direction.WEST
+        1 -> Direction.NORTH
+        2 -> Direction.EAST
+        3 -> Direction.SOUTH
+        else -> null
+    }
+}

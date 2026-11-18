@@ -1,0 +1,111 @@
+package content.entity.player.combat
+
+import content.entity.combat.hit.Hit
+import content.skill.melee.weapon.attackStyle
+import content.skill.melee.weapon.attackType
+import world.gregs.voidps.engine.Script
+import world.gregs.voidps.engine.data.definition.Tables
+import world.gregs.voidps.engine.entity.character.Character
+import world.gregs.voidps.engine.entity.character.npc.NPC
+import world.gregs.voidps.engine.entity.character.player.Player
+import world.gregs.voidps.engine.entity.character.player.Players
+import world.gregs.voidps.engine.entity.character.player.combatLevel
+import world.gregs.voidps.engine.entity.character.player.skill.Skill
+import world.gregs.voidps.engine.entity.character.player.skill.exp.exp
+import kotlin.math.floor
+
+class CombatExperience : Script {
+
+    init {
+        combatAttack { (target, damage, type, _, spell, _) ->
+            if (damage <= 0) {
+                return@combatAttack
+            }
+            // The dwarf multicannon gives 2 Ranged xp per 10 life points of damage and no Constitution xp.
+            if (type == "cannon") {
+                grant(this, target, Skill.Ranged, damage / 5.0)
+                return@combatAttack
+            }
+            if (type == "magic" || type == "blaze") {
+                val base = (Tables.intOrNull("spells.$spell.xp") ?: 0) / 10.0
+                if (get("defensive_cast", false)) {
+                    grant(this, target, Skill.Magic, base + damage / 7.5)
+                    grant(this, target, Skill.Defence, damage / 10.0)
+                } else {
+                    grant(this, target, Skill.Magic, base + damage / 5.0)
+                }
+            } else if (Hit.meleeType(type) || type == "scorch") {
+                when (attackStyle) {
+                    "accurate" -> grant(this, target, Skill.Attack, damage / 2.5)
+                    "aggressive" -> grant(this, target, Skill.Strength, damage / 2.5)
+                    "controlled" -> {
+                        grant(this, target, Skill.Attack, damage / 7.5)
+                        grant(this, target, Skill.Strength, damage / 7.5)
+                        grant(this, target, Skill.Defence, damage / 7.5)
+                    }
+                    "defensive" -> grant(this, target, Skill.Defence, damage / 2.5)
+                }
+            } else if (type == "dragonfire") {
+                // Dragonfire from a player is the dragonfire shield's discharge.
+                grant(this, target, Skill.Magic, damage / 7.5)
+                grant(this, target, Skill.Defence, damage / 10.0)
+            } else if (type == "range") {
+                if (attackType == "long_range") {
+                    grant(this, target, Skill.Ranged, damage / 5.0)
+                    grant(this, target, Skill.Defence, damage / 5.0)
+                } else {
+                    grant(this, target, Skill.Ranged, damage / 2.5)
+                }
+            }
+            grant(this, target, Skill.Constitution, damage / 7.5)
+        }
+
+        // Combat familiars grant their owner combat xp for the damage they deal: the skill for
+        // the owner's chosen melee style (or the familiar's range/magic type), plus Constitution.
+        npcCombatAttack("*_familiar*") { (target, damage, type) ->
+            if (damage <= 0) {
+                return@npcCombatAttack
+            }
+            val owner = Players.indexed(ownerIndex) ?: return@npcCombatAttack
+            when {
+                type == "magic" || type == "blaze" -> grant(owner, target, Skill.Magic, damage / 5.0)
+                type == "range" -> grant(owner, target, Skill.Ranged, damage / 2.5)
+                Hit.meleeType(type) || type == "scorch" -> when (owner.attackStyle) {
+                    "aggressive" -> grant(owner, target, Skill.Strength, damage / 2.5)
+                    "controlled" -> {
+                        grant(owner, target, Skill.Attack, damage / 7.5)
+                        grant(owner, target, Skill.Strength, damage / 7.5)
+                        grant(owner, target, Skill.Defence, damage / 7.5)
+                    }
+                    "defensive" -> grant(owner, target, Skill.Defence, damage / 2.5)
+                    else -> grant(owner, target, Skill.Attack, damage / 2.5)
+                }
+            }
+            grant(owner, target, Skill.Constitution, damage / 7.5)
+        }
+    }
+
+    fun grant(player: Player, target: Character, skill: Skill, experience: Double) {
+        // Some npcs, like random event pheasants, give no combat experience when killed.
+        if (target is NPC && !target.transformDef["combat_exp", true]) {
+            return
+        }
+        player.exp(skill, experience * calcBonus(target))
+    }
+
+    fun calcBonus(target: Character): Double = when (target) {
+        is NPC -> {
+            val combinedLevels = target.levels.get(Skill.Attack) +
+                target.levels.get(Skill.Strength) +
+                target.levels.get(Skill.Defence) +
+                target.levels.get(Skill.Constitution) / 10
+            val combinedAverage = floor(combinedLevels / 4.0)
+            val defenceLevels = target["stab_defence", 1] + target["slash_defence", 1] + target["crush_defence", 1]
+            val defenceAverage = floor(defenceLevels / 3.0)
+            val bonus = defenceAverage + target["strength", 0] + target["attack_bonus", 0]
+            1 + 0.025 * floor((combinedAverage * bonus) / 5120)
+        }
+        is Player -> (1 + 0.025 * floor(target.combatLevel / 20.0)).coerceAtMost(1.125)
+        else -> 1.0
+    }
+}

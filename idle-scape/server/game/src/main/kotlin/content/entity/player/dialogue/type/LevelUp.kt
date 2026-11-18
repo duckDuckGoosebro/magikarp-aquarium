@@ -1,0 +1,92 @@
+package content.entity.player.dialogue.type
+
+import world.gregs.voidps.engine.Script
+import world.gregs.voidps.engine.client.message
+import world.gregs.voidps.engine.client.ui.chat.an
+import world.gregs.voidps.engine.client.ui.close
+import world.gregs.voidps.engine.client.ui.open
+import world.gregs.voidps.engine.entity.character.jingle
+import world.gregs.voidps.engine.entity.character.player.Player
+import world.gregs.voidps.engine.entity.character.player.skill.Skill
+import world.gregs.voidps.engine.entity.character.player.skill.Skill.*
+import world.gregs.voidps.engine.entity.character.player.skill.Skills
+import world.gregs.voidps.engine.entity.character.player.skill.exp.Experience
+import world.gregs.voidps.engine.entity.character.player.skill.level.Level
+import world.gregs.voidps.engine.event.AuditLog
+import world.gregs.voidps.engine.queue.engineQueue
+import world.gregs.voidps.engine.suspend.pauseButton
+
+private const val LEVEL_UP_INTERFACE_ID = "dialogue_level_up"
+
+suspend fun Player.levelUp(skill: Skill, text: String) {
+    if (levelUp(this, skill, text)) {
+        pauseButton()
+        close(LEVEL_UP_INTERFACE_ID)
+    }
+}
+
+fun levelUp(player: Player, skill: Skill, text: String): Boolean {
+    val lines = text.trimIndent().lines()
+    player["level_up_icon"] = skill.name
+    player.sendVariable("level_up_icon")
+    if (!player.open(LEVEL_UP_INTERFACE_ID)) {
+        return false
+    }
+    for ((index, line) in lines.withIndex()) {
+        player.interfaces.sendText(LEVEL_UP_INTERFACE_ID, "line${index + 1}", line)
+    }
+    return true
+}
+
+class LevelUp : Script {
+
+    init {
+        experience { skill, from, to ->
+            val previousLevel = Experience.level(skill, from / 10.0)
+            val currentLevel = Experience.level(skill, to / 10.0)
+            if (currentLevel != previousLevel) {
+                levels.restore(skill, currentLevel - previousLevel)
+                Skills.maxChanged(this, skill, previousLevel, currentLevel)
+            }
+        }
+
+        maxLevelChanged { skill, from, to ->
+            if (from >= to) {
+                return@maxLevelChanged
+            }
+            if (get("skip_level_up", false)) {
+                return@maxLevelChanged
+            }
+            AuditLog.event(this, "level_up", skill.name, to)
+            val unlock = when (skill) {
+                Agility -> false
+                Construction -> to.rem(10) == 0
+                Constitution, Strength -> to >= 50
+                Hunter -> to.rem(2) == 0
+                else -> true // TODO has unlocked something
+            }
+            jingle("level_up_${skill.name.lowercase()}${if (unlock) "_unlock" else ""}", 0.5)
+            addVarbit("skill_stat_flash", skill.name.lowercase())
+            val level = if (skill == Constitution) to / 10 else to
+            // https://youtu.be/o6Ga2FGG1Dc?t=326
+            message("You've just advanced${skill.name.an()} ${skill.name} level! You have reached level $level.")
+            if (get("skip_level_up_dialogues", false)) {
+                return@maxLevelChanged
+            }
+            engineQueue("level_up") {
+                levelUp(
+                    this,
+                    skill,
+                    """
+                    Congratulations! You've just advanced${skill.name.an()} ${skill.name} level!
+                    You have now reached level $level!
+                """,
+                )
+                if (skill == Dungeoneering && level == 120 || level == Level.MAX_LEVEL) {
+                    // https://youtu.be/o6Ga2FGG1Dc?t=64
+                    message("<red>Well done! You've achieved the highest possible level in this skill!")
+                }
+            }
+        }
+    }
+}

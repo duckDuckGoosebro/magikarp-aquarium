@@ -1,0 +1,215 @@
+package content.skill.slayer.master
+
+import content.entity.npc.shop.openShop
+import content.entity.player.dialogue.*
+import content.entity.player.dialogue.type.choice
+import content.entity.player.dialogue.type.npc
+import content.entity.player.dialogue.type.player
+import content.quest.questCompleted
+import content.skill.slayer.*
+import net.pearx.kasechange.toSentenceCase
+import world.gregs.voidps.engine.Script
+import world.gregs.voidps.engine.client.ui.open
+import world.gregs.voidps.engine.data.definition.Tables
+import world.gregs.voidps.engine.entity.character.npc.NPC
+import world.gregs.voidps.engine.entity.character.player.Player
+import world.gregs.voidps.engine.entity.character.player.combatLevel
+import world.gregs.voidps.engine.entity.character.player.skill.Skill
+import world.gregs.voidps.engine.entity.character.player.skill.level.Level.has
+import world.gregs.voidps.engine.inv.add
+import world.gregs.voidps.engine.inv.inventory
+
+class SlayerMaster : Script {
+
+    init {
+        npcOperate("Talk-to", MASTER_IDS) { (target) ->
+            slayerMasterChat(master(target))
+        }
+
+        npcOperate("Get-task", MASTER_IDS) { (target) ->
+            assignTaskDialogue(master(target))
+        }
+
+        npcOperate("Trade", MASTER_IDS) {
+            if (contains("broader_fletching")) {
+                openShop("slayer_equipment_broads")
+            } else {
+                openShop("slayer_equipment")
+            }
+        }
+
+        npcOperate("Rewards", MASTER_IDS) {
+            open("slayer_rewards_learn")
+        }
+    }
+
+    /**
+     * The masters in Canifis and Shilo Village are spawned as a transforming npc which switches
+     * between the original and their stand-in, so - like interaction dispatch - the transformed
+     * id names the master talked to, falling back to the id the npc was spawned with.
+     */
+    private fun Player.master(npc: NPC): String {
+        val transformed = npc.def(this).stringId
+        return baseSlayerMaster(if (transformed in MASTERS) transformed else npc.id)
+    }
+
+    companion object {
+        private val MASTERS = setOf("turael", "spria", "mazchna", "achtryn", "vannaka", "chaeldar", "sumona", "duradel", "lapalok", "kuradal")
+        private val MASTER_IDS = MASTERS.joinToString(",")
+    }
+}
+
+internal suspend fun Player.slayerMasterChat(master: String) {
+    if (master == "turael" && slayerTasks == 0) {
+        player<Quiz>("Who are you?")
+        npc<Neutral>("I'm one of the elite Slayer Masters.")
+        choice {
+            option<Neutral>("What's a slayer?") {
+                npc<Sad>("Oh dear, what do they teach you in school?")
+                player<Confused>("Well... er...")
+                npc<Neutral>("I suppose I'll have to educate you then. A slayer is someone who is trained to fight specific creatures. They know these creatures' every weakness and strength. As you can guess it makes killing them a lot easier.")
+                teachMe(master)
+            }
+            option<Neutral>("Never heard of you...") {
+                npc<Neutral>("That's because my foe never lives to tell of me. We slayers are a dangerous bunch.")
+                teachMe(master)
+            }
+        }
+        return
+    }
+    npc<Neutral>("'Ello, and what are you after then?")
+    choice {
+        option<Neutral>("I need another assignment.") {
+            val stronger = strongerMaster(master)
+            if (stronger == null) {
+                assignTaskDialogue(master)
+                return@option
+            }
+            val name = stronger.id.toSentenceCase()
+            npc<Neutral>("You're actually very strong, are you sure you don't want $name in ${stronger.location} to assign you a task?")
+            choice {
+                option<Neutral>("No that's okay, I'll take a task from you.") {
+                    assignTaskDialogue(master)
+                }
+                option<Neutral>("Oh okay then, I'll go talk to $name.")
+            }
+        }
+        option<Quiz>("Have you any rewards for me, or anything to trade?") {
+            open("slayer_rewards_learn")
+        }
+        if (master == "turael" && questCompleted("animal_magnetism")) {
+            option<Neutral>("I'm here about blessed axes again.")
+        }
+        if (master == "kuradal") {
+            option<Quiz>("What is that cape you're wearing?") {
+                skillcapeMasterDialogue(Skill.Slayer, "an incredible student")
+            }
+        }
+        option<Neutral>("Er...nothing... ")
+    }
+}
+
+internal data class SlayerMasterRank(
+    val id: String,
+    val location: String,
+    val combat: Int,
+    val slayer: Int = 1,
+    val quest: String? = null,
+)
+
+/**
+ * The masters in order of strength, with the requirements the rewards interface lists for each.
+ */
+internal val slayerMasterRanks = listOf(
+    SlayerMasterRank("turael", "Burthorpe", combat = 3),
+    SlayerMasterRank("mazchna", "Canifis", combat = 20),
+    SlayerMasterRank("vannaka", "Edgeville Dungeon", combat = 40),
+    SlayerMasterRank("chaeldar", "Zanaris", combat = 70),
+    SlayerMasterRank("sumona", "Pollnivneach", combat = 3, slayer = 35, quest = "smoking_kills"),
+    SlayerMasterRank("duradel", "Shilo Village", combat = 100, slayer = 50),
+    SlayerMasterRank("kuradal", "the Ancient Cavern", combat = 110, slayer = 75),
+)
+
+/**
+ * The strongest master a player can be assigned tasks by, so they're pointed at the best rewards
+ * available to them rather than one rung up. Null once they're already with them.
+ */
+internal fun Player.strongerMaster(master: String): SlayerMasterRank? {
+    val rank = slayerMasterRanks.indexOfFirst { it.id == master }
+    if (rank == -1) {
+        return null
+    }
+    return slayerMasterRanks.drop(rank + 1).lastOrNull { qualifies(it) }
+}
+
+private fun Player.qualifies(rank: SlayerMasterRank): Boolean {
+    if (combatLevel < rank.combat) {
+        return false
+    }
+    if (!has(Skill.Slayer, rank.slayer)) {
+        return false
+    }
+    return rank.quest == null || questCompleted(rank.quest)
+}
+
+internal suspend fun Player.assignTaskDialogue(master: String) {
+    if (slayerTask == "nothing") {
+        roll(master)
+        return
+    }
+    npc<Neutral>("You're still hunting ${slayerTask.toSentenceCase()}, you have $slayerTaskRemaining to go.")
+    if (slayerMaster != "turael") {
+        npc<Neutral>("Although, it's not an assignment that I'd normally give... I guess I could give you a new assignment, if you'd like.")
+        npc<Neutral>("If you do get a new one, you will reset your task streak of $slayerStreak. Is that okay?")
+    } else {
+        npc<Quiz>("Although, it's a tougher assignment that I'd normally give... I guess I could give you a new assignment, if you'd like.")
+    }
+    choice {
+        option<Neutral>("Yes, please.") {
+            if (slayerMaster != "turael") {
+                slayerStreak = 0
+            }
+            roll(master)
+        }
+        option<Neutral>("No, thanks.")
+    }
+}
+
+private suspend fun Player.roll(master: String) {
+    val (type, amount) = assignTask(this, master)
+    npc<Happy>("Excellent, you're doing great. Your new task is to kill $amount ${type.toSentenceCase()}.")
+    choice {
+        option<Quiz>("Got any tips for me?") {
+            val tip = Tables.string("${master}_slayer_tasks.$type.tip")
+            npc<Neutral>(tip)
+        }
+        option<Happy>("Okay, great!")
+    }
+}
+
+private suspend fun Player.teachMe(master: String) {
+    choice {
+        option<Neutral>("Wow, can you teach me?") {
+            npc<Confused>("Hmmm well I'm not so sure...")
+            player<Neutral>("Pleeeaasssse!")
+            npc<Neutral>("Oh okay then, you twisted my arm. You'll have to train against specific groups of creatures.")
+            player<Quiz>("Okay, what's first?")
+            val (type, amount) = assignTask(this, master)
+            npc<Neutral>("We'll start you off hunting ${type.toSentenceCase()}, you'll need to kill $amount of them.")
+            npc<Neutral>("You'll also need this enchanted gem, it allows Slayer Masters like myself to contact you and update you on your progress. Don't worry if you lose it, you can buy another from any Slayer Master.")
+            inventory.add("enchanted_gem")
+            choice {
+                option("Got any tips for me?") {
+                    val tip = Tables.string("${master}_slayer_tasks.$type.tip")
+                    npc<Neutral>(tip)
+                }
+                option<Neutral>("Okay, great!") {
+                    npc<Happy>("Good luck! Don't forget to come back when you need a new assignment.")
+                }
+            }
+        }
+        option<Idle>("Sounds useless to me.") {
+            npc<Idle>("Suit yourself.")
+        }
+    }
+}

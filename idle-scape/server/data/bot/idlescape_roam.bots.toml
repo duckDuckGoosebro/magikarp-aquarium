@@ -1,0 +1,73 @@
+# Idle Scape roaming combat spots
+
+[roam_goblins_attack]
+template = "roam_kill_nearby"
+fields = { skill = "attack", location = "lumbridge_east_goblin_settlement", style = "style1" }
+
+[roam_goblins_strength]
+template = "roam_kill_nearby"
+fields = { skill = "strength", location = "lumbridge_east_goblin_settlement", style = "style2" }
+
+[roam_goblins_defence]
+template = "roam_kill_nearby"
+fields = { skill = "defence", location = "lumbridge_east_goblin_settlement", style = "style4" }
+
+[roam_chickens_attack]
+template = "roam_kill_nearby"
+fields = { skill = "attack", location = "lumbridge_chicken_pen", style = "style1" }
+
+[roam_chickens_strength]
+template = "roam_kill_nearby"
+fields = { skill = "strength", location = "lumbridge_chicken_pen", style = "style2" }
+
+[roam_chickens_defence]
+template = "roam_kill_nearby"
+fields = { skill = "defence", location = "lumbridge_chicken_pen", style = "style4" }
+
+[roam_giant_rats_attack]
+template = "roam_kill_nearby"
+fields = { skill = "attack", location = "lumbridge_swamp_giant_rats", style = "style1" }
+
+[roam_giant_rats_strength]
+template = "roam_kill_nearby"
+fields = { skill = "strength", location = "lumbridge_swamp_giant_rats", style = "style2" }
+
+[roam_giant_rats_defence]
+template = "roam_kill_nearby"
+fields = { skill = "defence", location = "lumbridge_swamp_giant_rats", style = "style4" }
+
+[roam_falador_chickens_attack]
+template = "roam_kill_nearby"
+fields = { skill = "attack", location = "falador_south_chickens", style = "style1" }
+
+[roam_falador_chickens_strength]
+template = "roam_kill_nearby"
+fields = { skill = "strength", location = "falador_south_chickens", style = "style2" }
+
+[roam_falador_chickens_defence]
+template = "roam_kill_nearby"
+fields = { skill = "defence", location = "falador_south_chickens", style = "style4" }
+
+[roam_lumbridge_cows_attack]
+template = "roam_kill_nearby"
+fields = { skill = "attack", location = "lumbridge_east_cow_field", style = "style1" }
+
+[roam_lumbridge_cows_strength]
+template = "roam_kill_nearby"
+fields = { skill = "strength", location = "lumbridge_east_cow_field", style = "style2" }
+
+[roam_lumbridge_cows_defence]
+template = "roam_kill_nearby"
+fields = { skill = "defence", location = "lumbridge_east_cow_field", style = "style4" }
+
+[roam_falador_cows_attack]
+template = "roam_kill_nearby"
+fields = { skill = "attack", location = "falador_south_cows", style = "style1" }
+
+[roam_falador_cows_strength]
+template = "roam_kill_nearby"
+fields = { skill = "strength", location = "falador_south_cows", style = "style2" }
+
+[roam_falador_cows_defence]
+template = "roam_kill_nearby"
+fields = { skill = "defence", location = "falador_south_cows", style = "style4" }

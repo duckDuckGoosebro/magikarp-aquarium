@@ -1,0 +1,51 @@
+package world.gregs.voidps.engine.client.variable
+
+interface VariableStore {
+
+    val variables: Variables
+
+    fun sendVariable(key: String) = variables.send(key)
+
+    fun addVarbit(key: String, value: Any, refresh: Boolean = true) = variables.bits.set(key, value, refresh)
+
+    fun removeVarbit(key: String, value: Any, refresh: Boolean = true) = variables.bits.remove(key, value, refresh)
+
+    @Suppress("UNCHECKED_CAST")
+    fun <T : Any> remove(key: String, refresh: Boolean = true) = variables.clear(key, refresh) as? T
+
+    fun clear(key: String, refresh: Boolean = true) = variables.clear(key, refresh)
+
+    fun toggle(key: String, refresh: Boolean = true, default: Boolean = false): Boolean {
+        val value = variables.get(key, default)
+        variables.set(key, !value as Any, refresh)
+        return !value
+    }
+
+    fun inc(key: String, amount: Int = 1, refresh: Boolean = true, max: Int = Int.MAX_VALUE): Int {
+        val value: Int = variables.get(key, 0)
+        val result = (value.toLong() + amount).coerceIn(Int.MIN_VALUE.toLong(), max.toLong()).toInt()
+        variables.set(key, result, refresh)
+        return result
+    }
+
+    fun dec(key: String, amount: Int = 1, refresh: Boolean = true, min: Int = 0): Int {
+        val value: Int = variables.get(key, 0)
+        val result = (value.toLong() - amount).coerceIn(min.toLong(), Int.MAX_VALUE.toLong()).toInt()
+        variables.set(key, result, refresh)
+        return result
+    }
+
+    operator fun set(key: String, refresh: Boolean, value: Any) = variables.set(key, value, refresh)
+
+    operator fun set(key: String, value: Any) = variables.set(key, value)
+
+    fun containsVarbit(key: String, id: Any): Boolean = variables.bits.contains(key, id)
+
+    fun contains(key: String): Boolean = variables.contains(key)
+
+    operator fun <T : Any> get(key: String): T? = variables.get(key)
+
+    operator fun <T : Any> get(key: String, default: T): T = variables.get(key, default)
+
+    fun <T : Any> getOrPut(key: String, block: () -> T): T = variables.getOrPut(key, block)
+}

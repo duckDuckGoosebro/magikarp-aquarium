@@ -1,0 +1,72 @@
+package world.gregs.voidps.engine.entity.obj
+
+import world.gregs.voidps.type.Zone
+
+class GameObjectTimers : Runnable {
+    internal data class Timer(
+        val objs: Set<GameObject>,
+        var ticks: Int,
+        val block: () -> Unit,
+    )
+
+    private val timers: MutableList<Timer> = mutableListOf()
+
+    override fun run() {
+        val expired = mutableListOf<Timer>()
+        timers.removeIf { timer ->
+            val done = --timer.ticks <= 0
+            if (timer.ticks == 0) {
+                expired.add(timer)
+            }
+            done
+        }
+        for (timer in expired) {
+            timer.block.invoke()
+        }
+    }
+
+    fun add(gameObject: GameObject, ticks: Int, block: () -> Unit) {
+        if (gameObject.intId == -1 || ticks <= 0) {
+            return
+        }
+        cancel(gameObject)
+        timers.add(Timer(setOf(gameObject), ticks, block))
+    }
+
+    fun add(gameObjects: Set<GameObject>, ticks: Int, block: () -> Unit) {
+        if (gameObjects.any { it.intId == -1 } || ticks <= 0) {
+            return
+        }
+        for (obj in gameObjects) {
+            cancel(obj)
+        }
+        timers.add(Timer(gameObjects, ticks, block))
+    }
+
+    fun contains(gameObject: GameObject): Boolean = timers.any { it.objs.contains(gameObject) }
+
+    fun cancel(gameObject: GameObject): Boolean = timers.removeIf { it.objs.contains(gameObject) }
+
+    fun cancel(zone: Zone): Boolean = timers.removeIf { timer -> timer.objs.any { it.tile.zone == zone } }
+
+    fun cancel(zones: Set<Zone>): Boolean = timers.removeIf { timer -> timer.objs.any { it.tile.zone in zones } }
+
+    fun execute(gameObject: GameObject): Boolean = timers.removeIf {
+        if (it.objs.contains(gameObject)) {
+            it.block.invoke()
+            true
+        } else {
+            false
+        }
+    }
+
+    /**
+     * Fires all timers to reset all temporary objects to their original states
+     */
+    fun reset() {
+        timers.forEach {
+            it.block.invoke()
+        }
+        timers.clear()
+    }
+}

@@ -1,0 +1,42 @@
+package content.skill.runecrafting
+
+import content.entity.proj.shoot
+import content.quest.questCompleted
+import world.gregs.voidps.engine.client.message
+import world.gregs.voidps.engine.data.definition.Areas
+import world.gregs.voidps.engine.entity.character.areaSound
+import world.gregs.voidps.engine.entity.character.move.tele
+import world.gregs.voidps.engine.entity.character.npc.NPC
+import world.gregs.voidps.engine.entity.character.player.Player
+import world.gregs.voidps.engine.inv.inventory
+import world.gregs.voidps.engine.inv.replace
+import world.gregs.voidps.engine.map.collision.random
+
+object EssenceMine {
+    suspend fun teleport(npc: NPC, player: Player) {
+        if (!player.questCompleted("rune_mysteries")) {
+            player.message("You need to complete Rune Mysteries before you can do this.")
+            return
+        }
+        npc.say("Senventior Disthine Molenko!")
+        npc.gfx("curse_cast")
+        areaSound("curse_cast", npc.tile, radius = 10)
+        npc.face(player)
+        npc.anim("curse")
+        player.gfx("curse_impact", delay = 100)
+        areaSound("curse_impact", player.tile, radius = 10, delay = 100)
+        player.shoot("curse", player.tile, delay = 60)
+        player.delay(4)
+        player["last_npc_teleport_to_rune_essence_mine"] = npc.id
+        val tile = Areas["essence_mine_teleport"].random(player)!!
+        player.tele(tile)
+        if (player["enter_the_abyss", "unstarted"] == "scrying") {
+            player["scrying_orb_${npc.id}"] = true
+            val count = player.variables.data.count { it.key.startsWith("scrying_orb_") }
+            if (count == 1) {
+                player.message("Your scrying orb has absorbed enough teleportation information.")
+                player.inventory.replace("scrying_orb", "scrying_orb_full")
+            }
+        }
+    }
+}

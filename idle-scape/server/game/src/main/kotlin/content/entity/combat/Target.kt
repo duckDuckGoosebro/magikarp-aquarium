@@ -1,0 +1,287 @@
+package content.entity.combat
+
+import content.area.kandarin.yanille.SalarinTheTwisted
+import content.area.wilderness.Wilderness
+import content.area.wilderness.inPvp
+import content.area.wilderness.inSingleCombat
+import content.area.wilderness.inWilderness
+import content.entity.combat.hit.Hit
+import content.entity.combat.hit.directHit
+import content.entity.player.equip.Equipment
+import content.minigame.duel_arena.Duel
+import content.minigame.duel_arena.DuelStage
+import content.minigame.duel_arena.duel
+import content.skill.magic.spell.spell
+import content.skill.melee.weapon.combatStyle
+import content.skill.ranged.ammo
+import content.skill.slayer.categories
+import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap
+import it.unimi.dsi.fastutil.objects.ObjectArrayList
+import world.gregs.voidps.engine.client.message
+import world.gregs.voidps.engine.client.variable.hasClock
+import world.gregs.voidps.engine.data.Settings
+import world.gregs.voidps.engine.data.definition.NPCDefinitions
+import world.gregs.voidps.engine.entity.character.Character
+import world.gregs.voidps.engine.entity.character.mode.PauseMode
+import world.gregs.voidps.engine.entity.character.mode.combat.CombatApi
+import world.gregs.voidps.engine.entity.character.mode.combat.CombatMovement
+import world.gregs.voidps.engine.entity.character.mode.interact.InteractOption
+import world.gregs.voidps.engine.entity.character.npc.NPC
+import world.gregs.voidps.engine.entity.character.npc.NPCs
+import world.gregs.voidps.engine.entity.character.player.Player
+import world.gregs.voidps.engine.entity.character.player.Players
+import world.gregs.voidps.engine.entity.character.player.combatLevel
+import world.gregs.voidps.engine.entity.character.player.equip.equipped
+import world.gregs.voidps.engine.entity.character.player.skill.Skill
+import world.gregs.voidps.engine.entity.item.Item
+import world.gregs.voidps.network.login.protocol.visual.update.player.EquipSlot
+
+object Target {
+    fun attackable(source: Character, target: Character, message: Boolean = true): Boolean {
+        if (target is NPC) {
+            if (target.id.startsWith("door_support") && NPCDefinitions.get(target.id).options[1] == "Destroy") {
+                return true
+            }
+            if (source is Player && !CombatApi.canAttack(source, target)) {
+                return false
+            }
+            if (source is Player && target.ownerIndex == source.index) {
+                if (message) source.message("You can't attack your own familiar.")
+                return false
+            }
+            if (source is Player && target.contains("owner")) {
+                val owner = target.get<String>("owner")
+                if (source.accountName != owner) {
+                    source.message("Someone else is fighting that.")
+                    return false
+                }
+            }
+            if ((source.spell == "bind" || source.spell == "snare" || source.spell == "entangle") && target.id.endsWith("_impling")) {
+                return true
+            }
+            if (source is Player) {
+                if (!target.def(source).options.contains("Attack")) {
+                    return false
+                }
+            } else if (target.ownerIndex == -1 && !target.def.options.contains("Attack")) {
+                // A familiar's base form deliberately has no "Attack" option (its owner can't click
+                // it) yet npcs must still fight back against one - combat() re-validates every tick.
+                return false
+            }
+            if (target.mode == PauseMode) {
+                return false
+            }
+            if (target.index == -1) {
+                return false
+            }
+            if (NPCs.indexed(target.index) == null) {
+                return false
+            }
+        }
+        if (source.tile.level != target.tile.level) {
+            return false
+        }
+        if (source.dead || target.dead || source["logged_out", false] || target["logged_out", false]) {
+            return false
+        }
+        val duel = duel(source) ?: duel(target)
+        if (duel != null) {
+            return duelAttackable(duel, source, target, message)
+        }
+        if (source is Player && target is Player) {
+            if (!Settings["combat.pvp", true]) {
+                if (message) source.message("Player-vs-player has been disabled in this world.")
+                return false
+            }
+            if (!source.inPvp && !source.inWilderness) {
+                if (message) source.message("You can only attack players in a player-vs-player area.")
+                return false
+            }
+            if (!target.inPvp && !target.inWilderness) {
+                if (message) source.message("That player is not in the wilderness.")
+                return false
+            }
+            if (target.inWilderness) {
+                val range = Wilderness.combatRange(source)
+                if (target.combatLevel !in range) {
+                    if (message) {
+                        source.message("Your level difference is too great!")
+                        source.message("You need to move deeper into the Wilderness.")
+                    }
+                    return false
+                }
+            }
+        }
+        if ((isNechryael(target.attacker) && target.attacker == this) || isDeathSpawn(source) || isDeathSpawn(target.attacker) || isDeathSpawn(source.attacker)) {
+            return true
+        }
+        // If the target I'm trying to attack is already in combat and I am not the attacker
+        if (target.inSingleCombat && target.underAttack && target.attacker != source) {
+            if (message) {
+                if (target is NPC) {
+                    (source as? Player)?.message("Someone else is fighting that.")
+                } else {
+                    (source as? Player)?.message("That player is already under attack.")
+                }
+            }
+            return false
+        }
+        // If I am already in combat and my attempted target is not my attacker
+        if (source.inSingleCombat && source.underAttack && source.attacker != target) {
+            if (message) (source as? Player)?.message("You are already in combat.")
+            return false
+        }
+        // PVP area, slayer requirements, in combat etc..
+        return true
+    }
+
+    private fun duel(character: Character): Duel? = dueller(character)?.duel
+
+    /**
+     * The player, or the familiar's owner
+     */
+    private fun dueller(character: Character): Player? {
+        if (character is Player) {
+            return character
+        }
+        val owner = character["owner_index", -1]
+        if (owner < 0) {
+            return null
+        }
+        return Players.indexed(owner)
+    }
+
+    /**
+     * Duellers and their familiars can only fight each other, and only once the countdown has finished
+     */
+    private fun duelAttackable(duel: Duel, source: Character, target: Character, message: Boolean): Boolean {
+        val attacker = dueller(source)
+        val defender = dueller(target)
+        if (attacker == null || defender == null || duel.opponent(attacker) != defender || attacker.duel != duel) {
+            if (message) (source as? Player)?.message("You can only attack your opponent!")
+            return false
+        }
+        if (duel.stage != DuelStage.Fighting) {
+            if (message) (source as? Player)?.message("The duel hasn't started yet.")
+            return false
+        }
+        if ((source is NPC || target is NPC) && !duel.hasRule("summoning")) {
+            return false
+        }
+        return true
+    }
+
+    fun isDeathSpawn(target: Character?) = target is NPC && target.id == "death_spawn"
+
+    fun isNechryael(target: Character?) = target is NPC && target.id == "nechryael"
+
+    fun isDemon(target: Character) = target is NPC && target.categories.contains("demons")
+
+    fun isVampyre(target: Character) = target is NPC && target.categories.contains("vampyres")
+
+    fun isShade(target: Character): Boolean = target is NPC && target.categories.contains("shades")
+
+    fun isKalphite(target: Character): Boolean = target is NPC && target.categories.contains("kalphites")
+
+    fun isDragon(target: Character): Boolean = target is NPC && target.categories.contains("dragons")
+
+    fun isMetalDragon(target: Character): Boolean = target is NPC && (target.id == "bronze_dragon" || target.id == "iron_dragon" || target.id == "steel_dragon")
+
+    // TODO other staves and npcs
+    fun isFirey(target: Character): Boolean {
+        if (target is Player) {
+            return target.equipped(EquipSlot.Weapon).id == "staff_of_fire"
+        } else if (target is NPC) {
+            return target.categories.contains("dragons") || target.id.startsWith("fire_elemental") || target.id.startsWith("fire_giant") || target.id.startsWith("pyrefiend")
+        }
+        return false
+    }
+
+    /**
+     * Damage caps which Guthans doesn't work on
+     * E.g. Kurask & Turoth
+     */
+    fun damageModifiers(source: Character, target: Character, type: String, weapon: Item, damage: Int): Int {
+        if (source is NPC) {
+            if (target is Player) {
+                val hat = target.equipped(EquipSlot.Hat).id
+                if (source.id == "banshee" && !Equipment.isEarmuffs(hat)) {
+                    return 80
+                } else if (source.id == "aberrant_spectre" && !Equipment.isNosePeg(hat)) {
+                    return 160
+                }
+            }
+            if (source.id == "corporeal_beast" && (Hit.meleeType(type) || type == "magic")) {
+                if (target is Player && Equipment.isCorpbaneWeapon(weapon.id) && target.combatStyle == "stab") {
+                    return damage
+                }
+                return damage / 2
+            }
+        }
+        return damage
+    }
+
+    /**
+     * Limits maximum amount of damage on NPCs (while still allowing Guthans to work)
+     */
+    fun damageLimitModifiers(source: Character, target: Character, damage: Int, type: String = "", weapon: Item = Item.EMPTY, spell: String = ""): Int = when (target) {
+        is NPC if target.id == "salarin_the_twisted" -> SalarinTheTwisted.damage(damage, type, weapon, spell)
+        is NPC if (target.id.startsWith("turoth") || target.id.startsWith("kurask")) -> when {
+            type == "magic" && spell != "magic_dart" -> 0
+            type == "range" && source.ammo != "broad_tipped_bolts" && source.ammo != "broad_arrows" -> 0
+            Hit.meleeType(type) && !weapon.id.startsWith("leaf_bladed") -> 0
+            else -> damage
+        }
+        is NPC if target.id.startsWith("frost_dragon") && target.hasClock("orb_protection") -> {
+            source.directHit(damage, "deflect", source = target)
+            0
+        }
+        is NPC if target.id == "harpie_bug_swarm" && source is Player && source.equipped(EquipSlot.Shield).id != "lit_bug_lantern" -> 0
+        is NPC if target.id.startsWith("pheasant") -> target.levels.get(Skill.Constitution)
+        is NPC if target.def.contains("damage_cap") -> damage.coerceAtMost(target.def["damage_cap"])
+        is NPC if target.def.contains("immune_death") -> damage.coerceAtMost(target.levels.get(Skill.Constitution) - 10)
+        is NPC if target.id.endsWith("_impling") -> 0
+        is NPC if (target.id == "spined_larupia" || target.id == "horned_graahk" || target.id == "sabre_toothed_kyatt") -> 0
+        else -> damage
+    }
+}
+
+internal var Character.target: Character?
+    get() = get("target")
+    set(value) {
+        if (value != null) {
+            set("target", value)
+        } else {
+            clear("target")
+        }
+    }
+
+val Character.inCombat: Boolean
+    get() = attacking || underAttack
+
+val Character.attacking: Boolean
+    get() = mode is CombatMovement || mode is InteractOption && (mode as InteractOption).option == "Attack"
+
+val Character.underAttack: Boolean
+    get() = hasClock("under_attack")
+
+var Character.attacker: Character?
+    get() = get("attacker")
+    set(value) {
+        if (value == null) {
+            clear("attacker")
+        } else {
+            set("attacker", value)
+        }
+    }
+
+var Character.attackers: MutableList<Character>
+    get() = getOrPut("attackers") { ObjectArrayList() }
+    set(value) = set("attackers", value)
+
+var Character.damageDealers: MutableMap<Character, Int>
+    get() = getOrPut("damage_dealers") { Object2IntOpenHashMap() }
+    set(value) = set("damage_dealers", value)
+
+val Character.killer: Character?
+    get() = damageDealers.maxByOrNull { it.value }?.key

@@ -1,0 +1,210 @@
+package world.gregs.voidps.engine.queue
+
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
+import world.gregs.voidps.cache.definition.data.InterfaceDefinition
+import world.gregs.voidps.engine.client.ui.Interfaces
+import world.gregs.voidps.engine.client.ui.close
+import world.gregs.voidps.engine.client.ui.hasMenuOpen
+import world.gregs.voidps.engine.client.ui.open
+import world.gregs.voidps.engine.data.definition.InterfaceDefinitions
+import world.gregs.voidps.engine.entity.character.player.Player
+import world.gregs.voidps.engine.suspend.Suspension
+
+@OptIn(ExperimentalCoroutinesApi::class)
+internal class ActionQueueTest {
+    private val testDispatcher = UnconfinedTestDispatcher()
+    private val testScope = TestScope(testDispatcher)
+
+    private lateinit var player: Player
+    private lateinit var queue: ActionQueue<Player>
+
+    @BeforeEach
+    fun setup() {
+        player = Player()
+        queue = ActionQueue(player, testScope)
+        InterfaceDefinitions.set(arrayOf(InterfaceDefinition(id = 0, type = "main_screen")), mapOf("test" to 0))
+        player.interfaces = Interfaces(player, mutableMapOf())
+    }
+
+    @Test
+    fun `Actions route to correct internal queues based on priority`() {
+        val weak = Action<Player>("weak", 1, ActionPriority.Weak) {}
+        val engine = Action<Player>("engine", 1, ActionPriority.Engine) {}
+        val normal = Action<Player>("normal", 1, ActionPriority.Normal) {}
+
+        queue.add(weak)
+        queue.add(engine)
+        queue.add(normal)
+
+        assertTrue(queue.contains(ActionPriority.Weak))
+        assertTrue(queue.contains(ActionPriority.Engine))
+        assertTrue(queue.contains(ActionPriority.Normal))
+    }
+
+    @Test
+    fun `Strong action closes menus and clears weak actions on tick`() {
+        queue.add(Action<Player>("weak", 1, ActionPriority.Weak) {})
+        queue.add(Action<Player>("strong", 1, ActionPriority.Strong) {})
+        player.open("test")
+
+        queue.tick()
+
+        assertFalse(player.hasMenuOpen(), "Menu should be closed by strong action tick")
+        assertFalse(queue.contains(ActionPriority.Weak), "Weak actions should be cleared")
+    }
+
+    @Test
+    fun `Execution is blocks normal actions when player is delayed`() {
+        var executed = false
+        queue.add(Action<Player>("test", 1, ActionPriority.Normal) { executed = true })
+
+        // Add delay
+        player.delay = 1
+        queue.tick()
+
+        assertFalse(executed, "Action should not execute while delayed")
+
+        // Remove delay
+        player.delay = 0
+        queue.tick()
+
+        assertTrue(executed, "Action should execute after delay removed")
+    }
+
+    @Test
+    fun `Execution is blocks normal actions if menu is open`() {
+        var executed = false
+        queue.add(Action<Player>("test", 1, ActionPriority.Normal) { executed = true })
+
+        player.open("test")
+        queue.tick()
+
+        assertFalse(executed, "Action should not execute with menu open")
+
+        player.close("test")
+        queue.tick()
+
+        assertTrue(executed, "Action should execute with menu closed")
+    }
+
+    @Test
+    fun `EngineTick executes only engine actions`() {
+        var engineExecuted = false
+        var normalExecuted = false
+
+        queue.add(Action<Player>("engine", 1, ActionPriority.Engine) { engineExecuted = true })
+        queue.add(Action<Player>("normal", 1, ActionPriority.Normal) { normalExecuted = true })
+
+        queue.engineTick()
+
+        assertTrue(engineExecuted)
+        assertFalse(normalExecuted)
+    }
+
+    @Test
+    fun `Clear by priority removes specific priority actions`() {
+        queue.add(Action<Player>("normal", 1, ActionPriority.Normal) {})
+        queue.add(Action<Player>("long", 1, ActionPriority.Long) {})
+
+        queue.clear(ActionPriority.Normal)
+
+        assertFalse(queue.contains(ActionPriority.Normal))
+        assertTrue(queue.contains(ActionPriority.Long))
+    }
+
+    @Test
+    fun `Clear by priority removes every matching action`() {
+        queue.add(Action<Player>("normal_a", 1, ActionPriority.Normal) {})
+        queue.add(Action<Player>("normal_b", 1, ActionPriority.Normal) {})
+        queue.add(Action<Player>("normal_c", 1, ActionPriority.Normal) {})
+
+        queue.clear(ActionPriority.Normal)
+
+        assertFalse(queue.contains("normal_a"))
+        assertFalse(queue.contains("normal_b"))
+        assertFalse(queue.contains("normal_c"))
+        assertTrue(queue.isEmpty())
+    }
+
+    @Test
+    fun `Logout executes long actions immediately`() {
+        var executed = false
+        queue.add(
+            Action<Player>("long", 5, ActionPriority.Long) {
+                delay(4)
+                executed = true
+            },
+        )
+
+        queue.logout()
+
+        assertTrue(executed, "Long actions should execute on logout regardless of delay")
+        assertTrue(queue.isEmpty())
+    }
+
+    @Test
+    fun `Logout resumes a Custom suspension whose predicate is ready`() {
+        var pastAwait = false
+        queue.add(
+            Action<Player>("long", 1, ActionPriority.Long) {
+                suspendCancellableCoroutine { cont ->
+                    suspension = Suspension.Custom(cont) { true }
+                }
+                suspension = null
+                pastAwait = true
+            },
+        )
+
+        queue.logout()
+
+        assertTrue(pastAwait, "Action should advance when the Custom predicate is already satisfied")
+        assertTrue(queue.isEmpty())
+    }
+
+    @Test
+    fun `Logout abandons an entry dialogue suspension instead of spinning`() {
+        var pastAwait = false
+        queue.add(
+            Action<Player>("long", 1, ActionPriority.Long) {
+                suspendCancellableCoroutine { cont ->
+                    suspension = Suspension.IntEntry(cont)
+                }
+                pastAwait = true
+            },
+        )
+
+        queue.logout()
+
+        assertFalse(pastAwait, "Input never arrives so the action must not continue")
+        assertNull(player.suspension)
+        assertTrue(queue.isEmpty())
+    }
+
+    @Test
+    fun `Clear by name removes same named actions from every queue`() {
+        queue.add(Action<Player>("name", 1, ActionPriority.Normal) {})
+        queue.add(Action<Player>("name", 1, ActionPriority.Weak) {})
+        queue.add(Action<Player>("name", 1, ActionPriority.Engine) {})
+
+        assertTrue(queue.clear("name"))
+
+        assertFalse(queue.contains("name"))
+    }
+
+    @Test
+    fun `Clear by engine priority removes engine actions`() {
+        queue.add(Action<Player>("engine", 1, ActionPriority.Engine) {})
+
+        queue.clear(ActionPriority.Engine)
+
+        assertFalse(queue.contains(ActionPriority.Engine))
+    }
+}

@@ -1,0 +1,69 @@
+package content.area.kandarin.ardougne
+
+import content.entity.player.dialogue.type.item
+import content.entity.player.dialogue.type.statement
+import world.gregs.voidps.engine.Script
+import world.gregs.voidps.engine.client.message
+import world.gregs.voidps.engine.entity.character.player.Player
+import world.gregs.voidps.engine.inv.inventory
+import world.gregs.voidps.engine.inv.replace
+
+class LegendsGuild : Script {
+
+    init {
+        objectOperate("Look", "legends_guild_totem_pole") {
+            if (!combatBracelets() && !skillsNecklaces()) {
+                statement("This totem pole is truly awe inspiring. It depicts powerful Karamjan animals. It is very well carved and brings a sense of power and spiritual fulfilment to anyone who looks at it.")
+                message("You don't have any jewellery that the totem can recharge.")
+            }
+        }
+
+        itemOnObjectOperate("combat_bracelet*", "legends_guild_totem_pole") {
+            combatBracelets()
+        }
+
+        itemOnObjectOperate("skills_necklace*", "legends_guild_totem_pole") {
+            skillsNecklaces()
+        }
+    }
+
+    suspend fun Player.skillsNecklaces(): Boolean {
+        var found = false
+        for (index in inventory.items.indices) {
+            val item = inventory[index]
+            if (item.id.startsWith("skills_necklace") && item.id != "skills_necklace_4" && inventory.replace(index, item.id, "skills_necklace_4")) {
+                found = true
+            }
+        }
+        if (found) {
+            skillsNecklace()
+        }
+        return found
+    }
+
+    suspend fun Player.combatBracelets(): Boolean {
+        var found = false
+        for (index in inventory.items.indices) {
+            val item = inventory[index]
+            if (item.id.startsWith("combat_bracelet") && item.id != "combat_bracelet_4" && inventory.replace(index, item.id, "combat_bracelet_4")) {
+                found = true
+            }
+        }
+        if (found) {
+            combatBracelet()
+        }
+        return found
+    }
+
+    suspend fun Player.combatBracelet() {
+        message("You touch the jewellery against the totem pole...")
+        anim("climb_down")
+        item("combat_bracelet", "You feel a power emanating from the totem pole as it recharges your bracelet. You can now rub the bracelet to teleport and wear it to get information while on a Slayer assignment.")
+    }
+
+    suspend fun Player.skillsNecklace() {
+        message("You touch the jewellery against the totem pole...")
+        anim("climb_down")
+        item("skills_necklace", "You feel a power emanating from the totem pole as it recharges your necklace. You can now rub the necklace to teleport and wear it to get more caskets while big net Fishing.")
+    }
+}

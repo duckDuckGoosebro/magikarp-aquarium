@@ -1,0 +1,161 @@
+package world.gregs.voidps.engine.map.zone
+
+import it.unimi.dsi.fastutil.ints.Int2IntArrayMap
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet
+import world.gregs.voidps.engine.data.definition.MapDefinitions
+import world.gregs.voidps.engine.entity.obj.GameObjects
+import world.gregs.voidps.engine.map.collision.Collisions
+import world.gregs.voidps.engine.map.collision.clear
+import world.gregs.voidps.type.Region
+import world.gregs.voidps.type.Zone
+import java.util.*
+import kotlin.collections.set
+
+class DynamicZones(
+    private val definitions: MapDefinitions,
+) : Runnable {
+    private val zones: MutableMap<Int, Int> = Int2IntArrayMap()
+
+    // All dynamic regions
+    private val regions = IntOpenHashSet()
+
+    // Dynamic regions that have recently been modified (not cleared)
+    private val refresh = IntOpenHashSet()
+
+    // All recent region changes (including clearing)
+    private var update = false
+
+    // Incremented on every change to detect stale player region updates
+    var version: Int = 0
+        private set
+
+    fun dynamic(region: Region) = regions.contains(region.id)
+
+    fun dynamicUpdate(region: Region) = refresh.contains(region.id)
+
+    fun dynamicZone(zone: Zone) = zones[zone.id]
+
+    /**
+     * @param from The zone to be copied
+     * @param to The zone things will be copied to
+     */
+    fun copy(from: Zone, to: Zone = from, rotation: Int = 0) = copy(listOf(Triple(from, to, rotation)))
+
+    /**
+     * Clears several zones before copying to prevent collisions that
+     * overlap boundaries from being lost.
+     */
+    fun copy(entries: List<Triple<Zone, Zone, Int>>) {
+        GameObjects.clear(entries.mapTo(HashSet()) { it.second })
+        for ((_, to) in entries) {
+            Collisions.clear(to)
+        }
+        for ((from, to, rotation) in entries) {
+            zones[to.id] = from.rotatedId(rotation)
+            definitions.loadZone(from, to, rotation)
+            for (region in to.toCuboid(radius = 3).toRegions()) {
+                regions.add(region.id)
+                refresh.add(region.id)
+            }
+        }
+        version++
+        update = true
+    }
+
+    /**
+     * Copies a block of zones, for content that only needs part of a region
+     */
+    fun copy(from: Zone, to: Zone, width: Int, height: Int, levels: Int = 1) {
+        val entries = mutableListOf<Triple<Zone, Zone, Int>>()
+        for (x in 0 until width) {
+            for (y in 0 until height) {
+                for (level in 0 until levels) {
+                    entries.add(Triple(Zone(from.x + x, from.y + y, from.level + level), Zone(to.x + x, to.y + y, to.level + level), 0))
+                }
+            }
+        }
+        copy(entries)
+    }
+
+    /**
+     * @param from The region to be copied
+     * @param to The region to be replaced
+     */
+    fun copy(from: Region, to: Region, levels: Int = 4) {
+        val targetZones = LinkedList(to.toCuboid(levels = levels).toZones())
+        val entries = from.toCuboid(levels = levels).toZones().map { Triple(it, targetZones.poll(), 0) }
+        copy(entries)
+    }
+
+    /**
+     * Clear the dynamic [zone] and replace it with the original
+     */
+    fun clear(zone: Zone) {
+        zones.remove(zone.id)
+        GameObjects.clear(zone)
+        Collisions.clear(zone)
+        definitions.loadZone(zone, zone, 0)
+        for (region in zone.toCuboid(radius = 3).toRegions()) {
+            if (region.toRectangle().toZones().none { zones.containsKey(it.id) }) {
+                regions.remove(region.id)
+            }
+        }
+        version++
+        update = true
+    }
+
+    /**
+     * Clear the dynamic [region] and replace it with the original
+     */
+    fun clear(region: Region) {
+        val dynamic = region.toCuboid().toZones().filter { zones.containsKey(it.id) }
+        GameObjects.clear(dynamic.toSet())
+        for (zone in dynamic) {
+            Collisions.clear(zone)
+        }
+        for (zone in dynamic) {
+            definitions.loadZone(zone, zone, 0)
+            zones.remove(zone.id)
+        }
+        if (regions.remove(region.id)) {
+            version++
+            update = true
+        }
+    }
+
+    /**
+     * Send updated regions to clients
+     */
+    override fun run() {
+        if (!update) {
+            return
+        }
+        reloadCallback.invoke()
+        update = false
+        refresh.clear()
+    }
+
+    companion object {
+
+        var reloadCallback: () -> Unit = {}
+
+        fun Zone.dynamicId() = toZonePosition(x, y, level)
+
+        fun Zone.rotatedId(rotation: Int) = toRotatedZonePosition(
+            x,
+            y,
+            level,
+            rotation,
+        )
+
+        fun getZone(id: Int) = Zone(x(id), y(id), level(id))
+
+        private fun x(id: Int) = id shr 14 and 0x7ff
+        private fun y(id: Int) = id shr 3 and 0x7ff
+        private fun level(id: Int) = id shr 28 and 0x7ff
+
+        private fun toZonePosition(zoneX: Int, zoneY: Int, level: Int): Int = zoneY + (zoneX shl 14) + (level shl 28)
+
+        private fun toRotatedZonePosition(zoneX: Int, zoneY: Int, level: Int, rotation: Int): Int = rotation shl 1 or (level shl 24) or (zoneX shl 14) or (zoneY shl 3)
+    }
+}

@@ -1,0 +1,363 @@
+package content.entity.combat
+
+import FakeRandom
+import WorldTest
+import content.entity.combat.damageDealers
+import content.entity.combat.hit.hit
+import content.entity.effect.stun
+import content.entity.effect.stunned
+import content.entity.player.effect.skull
+import equipItem
+import interfaceOption
+import kotlinx.coroutines.test.runTest
+import npcOption
+import org.junit.jupiter.api.Assertions.*
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertNotNull
+import playerOption
+import world.gregs.voidps.engine.entity.character.mode.combat.CombatMovement
+import world.gregs.voidps.engine.entity.character.player.appearance
+import world.gregs.voidps.engine.entity.character.player.name
+import world.gregs.voidps.engine.entity.character.player.skill.Skill
+import world.gregs.voidps.engine.entity.character.player.skill.level.Level
+import world.gregs.voidps.engine.entity.character.player.skill.level.Levels
+import world.gregs.voidps.engine.entity.item.floor.FloorItems
+import world.gregs.voidps.engine.inv.add
+import world.gregs.voidps.engine.inv.equipment
+import world.gregs.voidps.engine.inv.inventory
+import world.gregs.voidps.network.client.instruction.InteractPlayer
+import world.gregs.voidps.network.login.protocol.visual.update.player.EquipSlot
+import world.gregs.voidps.type.Tile
+import world.gregs.voidps.type.setRandom
+
+internal class CombatTest : WorldTest() {
+
+    @BeforeEach
+    fun setup() {
+        setRandom(object : FakeRandom() {
+            override fun nextInt(until: Int) = until
+            override fun nextInt(from: Int, until: Int): Int {
+                if (until == 128 || until == 1) { // Drops
+                    return from
+                }
+                return until
+            }
+        })
+    }
+
+    @Test
+    fun `Kill rat with magic`() {
+        val player = createPlayer(emptyTile)
+        val npc = createNPC("giant_rat", emptyTile.addY(4))
+        player.equipment.set(EquipSlot.Weapon.index, "staff_of_air")
+        player.experience.set(Skill.Magic, EXPERIENCE)
+        player.inventory.add("mind_rune", 100)
+
+        player.interfaceOption("modern_spellbook", "wind_strike", option = "Autocast")
+        player.npcOption(npc, "Attack")
+        tickIf { npc.levels.get(Skill.Constitution) > 0 }
+        val tile = npc["death_tile", npc.tile]
+        tick(7) // npc death
+
+        assertEquals(emptyTile, player.tile)
+        assertTrue(player.experience.get(Skill.Magic) > EXPERIENCE)
+        assertNotNull(FloorItems.firstOrNull(tile, "bones"))
+        assertTrue(player.inventory.count("mind_rune") < 100)
+    }
+
+    @Test
+    fun `Kill rat with melee`() {
+        val player = createPlayer(emptyTile)
+        val npc = createNPC("giant_rat", emptyTile.addY(4))
+
+        player.equipment.set(EquipSlot.Weapon.index, "dragon_longsword")
+        player.experience.set(Skill.Attack, EXPERIENCE)
+        player.experience.set(Skill.Strength, EXPERIENCE)
+        player.experience.set(Skill.Defence, EXPERIENCE)
+        player.levels.boost(Skill.Attack, 25)
+        player.levels.boost(Skill.Strength, 25)
+
+        player.interfaceOption("combat_styles", "style3", "Select")
+        player.npcOption(npc, "Attack")
+        tickIf { npc.levels.get(Skill.Constitution) > 0 }
+        val tile = npc["death_tile", npc.tile]
+        tick(7) // npc death
+
+        assertNotEquals(emptyTile, player.tile)
+        assertTrue(player.experience.get(Skill.Attack) > EXPERIENCE)
+        assertTrue(player.experience.get(Skill.Strength) > EXPERIENCE)
+        assertTrue(player.experience.get(Skill.Defence) > EXPERIENCE)
+        assertNotNull(FloorItems.firstOrNull(tile, "bones"))
+    }
+
+    @Test
+    fun `Familiar kill drops loot for its owner`() {
+        val owner = createPlayer(emptyTile)
+        val familiar = createNPC("spirit_wolf_familiar", emptyTile.addX(1))
+        familiar.ownerIndex = owner.index
+        val npc = createNPC("giant_rat", emptyTile.addY(4))
+        // The familiar dealt the killing damage.
+        npc.damageDealers[familiar] = 100
+        val tile = npc.tile
+        npc.levels.set(Skill.Constitution, 0)
+        tick(8) // npc death + drop
+
+        val bones = FloorItems.firstOrNull(npc["death_tile", tile], "bones")
+        assertNotNull(bones)
+        assertEquals(owner.name, bones!!.owner)
+    }
+
+    @Test
+    fun `A 0 hit on a familiar is attributed to its owner so the owner sees the blue splat`() {
+        val owner = createPlayer(emptyTile)
+        val familiar = createNPC("spirit_wolf_familiar", emptyTile.addX(1))
+        familiar.ownerIndex = owner.index
+        val attacker = createNPC("giant_rat", emptyTile.addY(4))
+
+        // An npc lands a 0 (blocked) hit on the familiar.
+        attacker.hit(familiar, offensiveType = "melee", damage = 0)
+        tick(1) // resolve the hit; read the splat this tick, before the next sync clears it
+
+        val splat = familiar.visuals.hits.splats.firstOrNull { it != null }
+        assertNotNull(splat)
+        // Owner index (positive) rather than the attacker npc, so the client shows the owner the splat.
+        assertEquals(owner.index, splat!!.source)
+    }
+
+    @Test
+    fun `Npc killed by a non-familiar npc does not crash resolving an owner`() {
+        val attacker = createNPC("giant_rat", emptyTile.addX(1))
+        val npc = createNPC("giant_rat", emptyTile.addY(4))
+        // A plain npc killer has no owner_index (-1); resolving it must not throw.
+        npc.damageDealers[attacker] = 100
+        val tile = npc.tile
+        npc.levels.set(Skill.Constitution, 0)
+        tick(8)
+
+        // The killer isn't a player, so no loot is dropped (original behaviour) - and no crash.
+        assertNull(FloorItems.firstOrNull(npc["death_tile", tile], "bones"))
+    }
+
+    @Test
+    fun `Kill rat with range`() {
+        setRandom(object : FakeRandom() {
+            override fun nextInt(from: Int, until: Int): Int = until / 2
+
+            override fun nextBits(bitCount: Int) = 100
+        })
+        val player = createPlayer(emptyTile)
+        val npc = createNPC("giant_rat", emptyTile.addY(4))
+        npc.huntMode = ""
+
+        player.levels.set(Skill.Ranged, 50)
+        player.equipment.set(EquipSlot.Weapon.index, "magic_shortbow")
+        player.equipment.set(EquipSlot.Ammo.index, "rune_arrow", 100)
+        player.experience.set(Skill.Ranged, EXPERIENCE)
+        player.experience.set(Skill.Defence, EXPERIENCE)
+        player.levels.boost(Skill.Ranged, 25)
+
+        player.interfaceOption("combat_styles", "style3", "Select")
+        player.npcOption(npc, "Attack")
+        tickIf { npc.levels.get(Skill.Constitution) > 0 }
+        val tile = npc["death_tile", npc.tile]
+        tick(6) // npc death
+
+        val drops = FloorItems.at(tile)
+        assertEquals(emptyTile, player.tile)
+        assertTrue(player.equipment[EquipSlot.Ammo.index].amount < 100)
+        assertTrue(drops.any { it.id == "bones" })
+        assertNotNull(FloorItems.firstOrNull(emptyTile.addY(4), "rune_arrow"))
+        assertTrue(player.experience.get(Skill.Ranged) > EXPERIENCE)
+        assertTrue(player.experience.get(Skill.Defence) > EXPERIENCE)
+        assertTrue(player.inventory.count("rune_arrow") < 100)
+    }
+
+    @Test
+    fun `Dragon dagger special attack`() {
+        val player = createPlayer(emptyTile)
+        player.experience.set(Skill.Attack, EXPERIENCE)
+        player.levels.set(Skill.Attack, 99)
+        val npc = createNPC("rat", emptyTile.addY(1))
+
+        player.inventory.add("dragon_dagger")
+        player.equipItem("dragon_dagger")
+
+        player.interfaceOption("combat_styles", "special_attack_bar", "Use")
+        player.npcOption(npc, "Attack")
+        tick(2)
+
+        assertEquals(1, npc.visuals.hits.splats.count { it != null })
+    }
+
+    @Test
+    fun `Don't take damage with protection prayers`() {
+        setRandom(object : FakeRandom() {
+            override fun nextBits(bitCount: Int) = 100
+        })
+        val player = createPlayer(emptyTile)
+        player.experience.set(Skill.Constitution, EXPERIENCE)
+        player.experience.set(Skill.Prayer, EXPERIENCE)
+        player.levels.set(Skill.Constitution, 990)
+        player.levels.set(Skill.Prayer, 99)
+        val npc = createNPC("rat", emptyTile.addY(1))
+        npc.levels.link(
+            npc,
+            object : Levels.Level {
+                override fun getMaxLevel(skill: Skill): Int = if (skill == Skill.Constitution) 10000 else 1
+            },
+        )
+        npc.levels.clear()
+
+        player.interfaceOption("prayer_list", "regular_prayers", "Activate", slot = 19, optionIndex = 0)
+        player.npcOption(npc, "Attack")
+        tick(4)
+
+        assertEquals(990, player.levels.get(Skill.Constitution))
+        assertNotEquals(0, player["protected_damage", 0])
+    }
+
+    @Test
+    fun `Ranged attacks will run within distance and stop`() {
+        val player = createPlayer(Tile(3228, 3415))
+        val npc = createNPC("rat", Tile(3228, 3407))
+
+        player.equipment.set(EquipSlot.Weapon.index, "magic_shortbow")
+        player.equipment.set(EquipSlot.Ammo.index, "rune_arrow", 100)
+        player.experience.set(Skill.Ranged, EXPERIENCE)
+        player.levels.set(Skill.Ranged, 50)
+        player.levels.boost(Skill.Ranged, 25)
+
+        player.interfaceOption("combat_styles", "style1", "Select")
+        player.npcOption(npc, "Attack")
+        tickIf { npc.levels.get(Skill.Constitution) > 0 }
+        tick(5) // npc death
+
+        assertEquals(Tile(3228, 3414), player.tile)
+    }
+
+    @Test
+    fun `Kill player with melee`() {
+        val startTile = Tile(3143, 3553)
+        val targetTile = startTile.addX(3)
+        val player = createPlayer(startTile)
+        val target = createPlayer(targetTile)
+
+        player.equipment.set(EquipSlot.Weapon.index, "dragon_longsword")
+        player.experience.set(Skill.Attack, EXPERIENCE)
+        player.experience.set(Skill.Strength, EXPERIENCE)
+        player.experience.set(Skill.Defence, EXPERIENCE)
+        player.levels.boost(Skill.Attack, 25)
+        player.levels.boost(Skill.Strength, 25)
+        target.appearance.combatLevel = 90
+        target.inventory.add("dragon_longsword", 1)
+        target.inventory.add("magic_shortbow", 1)
+        target.inventory.add("rune_arrow", 10)
+        target.inventory.add("plague_jacket", 1)
+        target.skull()
+
+        player.interfaceOption("combat_styles", "style3", "Select")
+        player.playerOption(target, "Attack")
+        tickIf { target.levels.get(Skill.Constitution) > 0 }
+        tick(7) // player death
+
+        assertNotEquals(startTile, player.tile)
+        assertTrue(player.experience.get(Skill.Attack) > EXPERIENCE)
+        assertTrue(player.experience.get(Skill.Strength) > EXPERIENCE)
+        assertTrue(player.experience.get(Skill.Defence) > EXPERIENCE)
+        val items = FloorItems.at(targetTile)
+        assertTrue(items.any { it.id == "coins" })
+        assertTrue(items.any { it.id == "rune_arrow" && it.amount > 1 })
+        assertTrue(items.any { it.id == "bones" })
+    }
+
+    @Test
+    fun `Can't attack players`() {
+        val player = createPlayer(emptyTile)
+        val target = createPlayer(emptyTile.addY(4))
+
+        player.equipment.set(EquipSlot.Weapon.index, "dragon_longsword")
+        player.experience.set(Skill.Attack, EXPERIENCE)
+        player.experience.set(Skill.Strength, EXPERIENCE)
+        player.experience.set(Skill.Defence, EXPERIENCE)
+        player.levels.boost(Skill.Attack, 25)
+        player.levels.boost(Skill.Strength, 25)
+
+        player.interfaceOption("combat_styles", "style3", "Select")
+        runTest {
+            player.instructions.send(InteractPlayer(target.index, 1))
+        }
+        tick(2)
+
+        assertEquals(emptyTile, player.tile)
+        assertEquals(EXPERIENCE, player.experience.get(Skill.Attack))
+        assertEquals(EXPERIENCE, player.experience.get(Skill.Strength))
+        assertEquals(EXPERIENCE, player.experience.get(Skill.Defence))
+    }
+
+    @Test
+    fun `Npc should die after one tick from a final hit`() {
+        val player = createPlayer(emptyTile)
+        val npc = createNPC("goblin_turquoise_grey_ponytail", emptyTile.addY(1))
+        player.equipment.set(EquipSlot.Weapon.index, "dragon_claws")
+        player.levels.set(Skill.Strength, Level.MAX_LEVEL)
+        player.levels.set(Skill.Attack, Level.MAX_LEVEL)
+
+        player.npcOption(npc, "Attack")
+        tick(1) // attack
+        assertFalse(npc.dead)
+        tick(1) // npc death
+        assertTrue(npc.dead)
+        assertFalse(npc.contains("death_tile"))
+        tick(1) // death queue
+        assertEquals(npc.tile, npc["death_tile"])
+    }
+
+    @Test
+    fun `Npc should die instantly from multiple hits`() {
+        // Due to the behaviour of ActionQueue caching whether to end iterating before the last action was processed.
+        val player = createPlayer(emptyTile)
+        val npc = createNPC("goblin_turquoise_grey_ponytail", emptyTile.addY(1))
+        player.equipment.set(EquipSlot.Weapon.index, "dragon_claws")
+        player.levels.set(Skill.Strength, Level.MAX_LEVEL)
+        player.levels.set(Skill.Attack, Level.MAX_LEVEL)
+        player.interfaceOption("combat_styles", "special_attack_bar", "Use")
+
+        player.npcOption(npc, "Attack")
+        tick(1) // attack + death
+        assertFalse(npc.dead)
+        tick(1) // npc death + queue
+        assertTrue(npc.dead)
+        assertEquals(npc.tile, npc["death_tile"])
+    }
+
+    @Test
+    fun `Stunned npc cannot land attacks until the stun expires`() {
+        val player = createPlayer(emptyTile)
+        val npc = createNPC("rat", emptyTile.addY(1))
+        npc.mode = CombatMovement(npc, player)
+        npc.target = player
+
+        // Baseline: an un-stunned rat reliably damages the adjacent player.
+        val healthy = player.levels.get(Skill.Constitution)
+        tick(6)
+        assertTrue(player.levels.get(Skill.Constitution) < healthy, "an un-stunned rat lands hits")
+
+        // Stun the rat - it must not swing for the stun's duration.
+        player.stun(npc, 10)
+        assertTrue(npc.stunned)
+        val stunned = player.levels.get(Skill.Constitution)
+        tick(6)
+        // No hits land: health only holds or naturally regenerates, it never drops.
+        val duringStun = player.levels.get(Skill.Constitution)
+        assertTrue(duringStun >= stunned, "a stunned rat lands no hits")
+
+        // Attacks resume once the stun lapses.
+        tick(8)
+        assertTrue(player.levels.get(Skill.Constitution) < duringStun, "the rat attacks again after the stun")
+    }
+
+    companion object {
+        private const val EXPERIENCE = 14000000.0
+    }
+}

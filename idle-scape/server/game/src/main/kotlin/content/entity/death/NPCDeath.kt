@@ -1,0 +1,244 @@
+package content.entity.death
+
+import com.github.michaelbull.logging.InlineLogger
+import content.area.wilderness.daemonheim.DungeoneeringParty.Companion.inDungeoneering
+import content.area.wilderness.inMultiCombat
+import content.entity.combat.attackers
+import content.entity.combat.damageDealers
+import content.entity.combat.killer
+import content.entity.effect.clearTransform
+import content.entity.player.inv.item.tradeable
+import content.entity.player.logEvent
+import content.skill.slayer.*
+import content.social.clan.clan
+import world.gregs.voidps.engine.Script
+import world.gregs.voidps.engine.client.clearHinted
+import world.gregs.voidps.engine.client.message
+import world.gregs.voidps.engine.client.ui.chat.an
+import world.gregs.voidps.engine.client.ui.chat.plural
+import world.gregs.voidps.engine.data.Settings
+import world.gregs.voidps.engine.data.definition.CombatDefinitions
+import world.gregs.voidps.engine.data.definition.Rows
+import world.gregs.voidps.engine.entity.World
+import world.gregs.voidps.engine.entity.character.Character
+import world.gregs.voidps.engine.entity.character.Death
+import world.gregs.voidps.engine.entity.character.mode.PauseMode
+import world.gregs.voidps.engine.entity.character.npc.NPC
+import world.gregs.voidps.engine.entity.character.player.Player
+import world.gregs.voidps.engine.entity.character.player.Players
+import world.gregs.voidps.engine.entity.character.player.chat.ChatType
+import world.gregs.voidps.engine.entity.character.player.name
+import world.gregs.voidps.engine.entity.character.player.skill.Skill
+import world.gregs.voidps.engine.entity.character.player.skill.exp.exp
+import world.gregs.voidps.engine.entity.character.sound
+import world.gregs.voidps.engine.entity.item.Item
+import world.gregs.voidps.engine.entity.item.drop.DropTables
+import world.gregs.voidps.engine.entity.item.floor.FloorItems
+import world.gregs.voidps.engine.event.AuditLog
+import world.gregs.voidps.engine.inv.charges
+import world.gregs.voidps.engine.queue.queue
+import world.gregs.voidps.type.Tile
+
+class NPCDeath(
+    val combatDefinitions: CombatDefinitions,
+    val tables: DropTables,
+) : Script {
+
+    var Player.lootSharePotential: Int
+        get() = get("loot_share_potential", 0)
+        set(value) = set("loot_share_potential", value)
+
+    val logger = InlineLogger()
+
+    init {
+        npcLevelChanged(Skill.Constitution) { _, _, to ->
+            if (to > 0 || queue.contains("death") || !Death.canDie(this)) {
+                return@npcLevelChanged
+            }
+            mode = PauseMode
+            dead = true
+            steps.clear()
+            clearWatch()
+            val npc = this
+            val onDeath = Death.killed(npc)
+            queue(name = "death", 1) {
+                // Credit a familiar's kill to its owner so loot, slayer and the kill log go to the
+                // player rather than the familiar npc.
+                var killer = killer
+                if (killer is NPC && killer.ownerIndex != -1) {
+                    killer = Players.indexed(killer.ownerIndex)
+                }
+                val tile = if (transformId == "wall_beast") tile.addY(-1) else tile
+                npc["death_tile"] = tile
+                val combat = combatDefinitions.get(transformDef["combat_def", transformId])
+                val ticks = anim(combat.deathAnim)
+                if (combat.deathSound != null) {
+                    (killer as? Player)?.sound(combat.deathSound!!.id)
+                }
+                clearHinted()
+                delay(if (ticks == 0) 4 else ticks)
+                if (killer is Player) {
+                    AuditLog.event(killer, "killed", npc, tile)
+                    slay(killer, npc)
+                    if (onDeath.dropItems) {
+                        dropLoot(npc, killer, tile)
+                    }
+                }
+                queue.clear()
+                attackers.clear()
+                softTimers.stopAll()
+                clearTransform()
+                if (Death.afterDeath(npc)) {
+                    return@queue
+                }
+                hide = true
+                val respawn = get<Tile>("respawn_tile")
+                if (lifecycle >= 0 && respawn != null && onDeath.respawn) {
+                    damageDealers.clear()
+                    respawn(npc["respawn_delay", 60])
+                } else {
+                    despawn(1)
+                }
+            }
+        }
+    }
+
+    fun dropLoot(npc: NPC, killer: Character?, tile: Tile) {
+        val table = tables.get("${npc.def["drop_table", npc.id]}_drop_table") ?: return
+        val combatLevel = npc.def.combat
+        val drops = table.roll(maximumRoll = if (combatLevel > 0) combatLevel * 10 else -1, player = killer as? Player, multiplier = Settings["world.itemDropRate", 1.0])
+            .filterNot { it.id == "nothing" }
+            .reversed()
+            .map { it.toItem() }
+            .filter { World.members || !it.def.members }
+            .toMutableList()
+        AuditLog.event(npc, "dropped", *drops.toTypedArray())
+        if (killer is Player && killer.inDungeoneering) {
+            for (item in drops) {
+                if (item.amount <= 0) {
+                    continue
+                }
+                // TODO do items reveal after 60 or immediately?
+                if (item.def.stackable == 0 && item.amount > 1) {
+                    for (i in 0 until item.amount) {
+                        FloorItems.add(tile, item.id, 1, charges = item.charges(), revealTicks = if (item.tradeable) FloorItems.IMMEDIATE else FloorItems.NEVER)
+                    }
+                } else {
+                    FloorItems.add(tile, item.id, item.amount, charges = item.charges(), revealTicks = if (item.tradeable) FloorItems.IMMEDIATE else FloorItems.NEVER)
+                }
+            }
+        } else if (npc.inMultiCombat && killer is Player && killer["loot_share", false]) {
+            shareLoot(killer, npc, tile, drops)
+        } else {
+            val player = killer as? Player
+            for (item in drops) {
+                if (item.id.contains("clue_scroll") || item.amount <= 0) {
+                    continue
+                }
+                if (item.def.stackable == 0 && item.amount > 1) {
+                    for (i in 0 until item.amount) {
+                        FloorItems.add(tile, item.id, 1, charges = item.charges(), revealTicks = if (item.tradeable) 60 else FloorItems.NEVER, disappearTicks = 120, owner = killer as? Player)
+                    }
+                } else {
+                    FloorItems.add(tile, item.id, item.amount, charges = item.charges(), revealTicks = if (item.tradeable) 60 else FloorItems.NEVER, disappearTicks = 120, owner = killer as? Player)
+                }
+                logItems(player, item, npc)
+            }
+        }
+    }
+
+    fun logItems(player: Player?, item: Item, npc: NPC) {
+        if (player == null) {
+            return
+        }
+        Rows.getOrNull("log_item.${item.id}") ?: return
+        player.logEvent("I found${item.def.name.an()} ${item.def.name}", "After killing${npc.def.name.an()} ${npc.def.name}, it dropped${if (item.def.name.endsWith("boots", ignoreCase = true)) " a pair of" else item.def.name.an()} ${item.def.name}")
+    }
+
+    fun shareLoot(killer: Player, npc: NPC, tile: Tile, drops: List<Item>) {
+        val clan = killer.clan ?: return
+        val members = npc.damageDealers.keys
+            .filterIsInstance<Player>()
+            .filter { it.tile.within(tile, 16) && clan.members.contains(it) && it["loot_share", false] }
+        drops.forEach { item ->
+            if (item.amount <= 0) {
+                return@forEach
+            }
+            if (clan.coinShare && item.def.cost > 100000) {
+                shareCoin(item, members, tile)
+            } else {
+                val awardee = getAwardee(item, killer, members)
+                notify(members, awardee, item)
+                FloorItems.add(
+                    tile,
+                    item.id,
+                    item.amount,
+                    charges = item.charges(),
+                    revealTicks = if (item.tradeable) 60 else FloorItems.NEVER,
+                    disappearTicks = if (item.tradeable) 120 else 300,
+                    owner = awardee,
+                )
+                awardee.message("<dark_green>You received: ${item.amount} ${item.def.name.plural(item.amount)}.", ChatType.ClanChat)
+            }
+        }
+    }
+
+    fun shareCoin(item: Item, members: List<Player>, tile: Tile) {
+        val total = item.def.cost * item.amount
+        val split = total / members.size
+        for (member in members) {
+            FloorItems.add(tile, "coins", split, revealTicks = 60, disappearTicks = 120, owner = member)
+            member.message("<dark_green>You received $split gold as your split of this drop: ${item.amount} x ${item.def.name}.", ChatType.ClanChat)
+        }
+    }
+
+    fun getAwardee(item: Item, killer: Player, members: List<Player>) = if (item.tradeable) weightedSample(members.map { member -> member to member.lootSharePotential }) ?: killer else killer
+
+    fun notify(members: List<Player>, awardee: Player, item: Item) {
+        for (member in members) {
+            if (member == awardee) {
+                continue
+            }
+            member.message("${awardee.name} received: ${item.amount} ${item.def.name.plural(item.amount)}.", ChatType.ClanChat)
+            member.lootSharePotential += item.def.cost * item.amount
+            member.message("Your chance of receiving loot has improved.", ChatType.Filter)
+        }
+    }
+
+    fun slay(player: Player, npc: NPC) {
+        if (player.slayerTask == "nothing" || !npc.categories.contains(player.slayerTask)) {
+            return
+        }
+        val slayerExp = npc.def["slayer_xp", 0.0]
+        if (slayerExp == 0.0) {
+            logger.warn { "No slayer exp found for slain monster: $npc" }
+            return
+        }
+        player.exp(Skill.Slayer, slayerExp)
+        player.slayerTaskRemaining--
+        if (player.slayerTaskRemaining == 0) {
+            player.slayerStreak++
+            var points = when (player.slayerMaster) {
+                "mazchna" -> 15
+                "vannaka" -> 60
+                "chaeldar" -> 150
+                "sumona" -> 180
+                "duradel", "lapalok" -> 225
+                "kuradal" -> 270
+                else -> 0
+            }
+            when {
+                player.slayerStreak.rem(50) == 0 -> {}
+                player.slayerStreak.rem(10) == 0 -> points /= 3
+                else -> points /= 15
+            }
+            player.slayerPoints += points
+            player.inc("slayer_tasks_completed")
+            player.clear("slayer_target")
+            // TODO dif message for 0 points?
+            player.message("You've completed ${player.slayerStreak} tasks in a row and gain $points points. Return to a Slayer Master.")
+        } else if (player.slayerTaskRemaining.rem(10) == 0) {
+            player.message("You still need to kill ${player.slayerTaskRemaining} monsters to completed your current Slayer assignment.", ChatType.Filter)
+        }
+    }
+}

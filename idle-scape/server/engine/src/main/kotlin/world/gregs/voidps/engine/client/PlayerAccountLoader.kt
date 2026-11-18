@@ -1,0 +1,173 @@
+package world.gregs.voidps.engine.client
+
+import com.github.michaelbull.logging.InlineLogger
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.channels.SendChannel
+import kotlinx.coroutines.withContext
+import world.gregs.voidps.engine.data.AccountManager
+import world.gregs.voidps.engine.data.SaveQueue
+import world.gregs.voidps.engine.data.Settings
+import world.gregs.voidps.engine.data.Storage
+import world.gregs.voidps.engine.data.copy
+import world.gregs.voidps.engine.data.definition.AccountDefinitions
+import world.gregs.voidps.engine.entity.World
+import world.gregs.voidps.engine.entity.character.player.Player
+import world.gregs.voidps.engine.entity.character.player.Players
+import world.gregs.voidps.engine.entity.character.player.name
+import world.gregs.voidps.engine.entity.character.player.rights
+import world.gregs.voidps.engine.event.AuditLog
+import world.gregs.voidps.network.Response
+import world.gregs.voidps.network.client.Client
+import world.gregs.voidps.network.client.ConnectionQueue
+import world.gregs.voidps.network.client.Instruction
+import world.gregs.voidps.network.login.AccountCreator
+import world.gregs.voidps.network.login.AccountLoader
+import world.gregs.voidps.network.login.AccountNames
+import world.gregs.voidps.network.login.Registration
+import world.gregs.voidps.network.login.protocol.encode.login
+import world.gregs.voidps.network.login.registration.RegistrationResponse
+
+/**
+ * Checks password is valid for a player account before logging in
+ * Keeps track of the players online, prevents duplicate login attempts
+ */
+class PlayerAccountLoader(
+    private val queue: ConnectionQueue,
+    private val storage: Storage,
+    private val accounts: AccountManager,
+    private val saveQueue: SaveQueue,
+    private val accountDefinitions: AccountDefinitions,
+    private val gameContext: CoroutineDispatcher,
+) : AccountLoader,
+    AccountCreator {
+    private val logger = InlineLogger()
+
+    var update: Boolean = false
+
+    override fun used(username: String) = accountDefinitions.get(username) != null
+
+    override fun exists(username: String): Boolean = storage.exists(username)
+
+    override fun password(username: String): String? = accountDefinitions.getByAccount(username)?.passwordHash
+
+    /**
+     * @return flow of instructions for the player to be controlled with
+     */
+    override suspend fun load(client: Client, username: String, passwordHash: String, displayMode: Int): SendChannel<Instruction>? {
+        try {
+            val saving = saveQueue.saving(username)
+            if (saving) {
+                client.disconnect(Response.ACCOUNT_ONLINE)
+                return null
+            }
+            if (update) {
+                client.disconnect(Response.GAME_UPDATE)
+                return null
+            }
+            val save = storage.load(username)
+            if (save != null && banned(save.variables)) {
+                client.disconnect(Response.ACCOUNT_DISABLED)
+                return null
+            }
+            var player = save?.toPlayer()
+            if (player == null) {
+                if (!Settings["development.accountCreation", false]) {
+                    client.disconnect(Response.INVALID_CREDENTIALS)
+                    return null
+                }
+                player = accounts.create(username, passwordHash)
+            }
+            logger.info { "Player $username loaded and queued for login." }
+            connect(player, client, displayMode)
+            return player.instructions
+        } catch (e: IllegalStateException) {
+            logger.trace(e) { "Error loading player account" }
+            client.disconnect(Response.COULD_NOT_COMPLETE_LOGIN)
+            return null
+        }
+    }
+
+    override fun available(email: String): Int {
+        if (!Settings["accounts.registration", false]) {
+            return RegistrationResponse.REFUSED
+        }
+        if (accountDefinitions.getByAccount(email) != null) {
+            return RegistrationResponse.EMAIL_IN_USE
+        }
+        return RegistrationResponse.SUCCESS
+    }
+
+    /**
+     * Creates an account registered from the login screen; the email is the account name
+     */
+    override suspend fun create(registration: Registration): Int {
+        if (!Settings["accounts.registration", false]) {
+            return RegistrationResponse.REFUSED
+        }
+        return create(registration.email, registration.passwordHash, displayName = null, registration.hostname)
+    }
+
+    /**
+     * Creates and persists an account regardless of the client registration setting, e.g. for the web api.
+     * Username account names double as the display name; email account names use [displayName] when given,
+     * otherwise they're given a placeholder and pick their own on first login.
+     * @return a [RegistrationResponse] code
+     */
+    suspend fun create(accountName: String, passwordHash: String, displayName: String?, hostname: String): Int {
+        val name = AccountNames.normalise(accountName)
+        // Checking and reserving the name together on the game thread stops two requests registering the same name
+        val player = withContext(gameContext) {
+            if (accountDefinitions.taken(name) || displayName != null && accountDefinitions.taken(displayName)) {
+                return@withContext null
+            }
+            val player = accounts.create(name, passwordHash, displayName)
+            accountDefinitions.add(player)
+            player
+        } ?: return RegistrationResponse.EMAIL_IN_USE
+        try {
+            if (!storage.create(player.copy())) {
+                withContext(gameContext) {
+                    accountDefinitions.remove(name)
+                }
+                return RegistrationResponse.EMAIL_IN_USE
+            }
+        } catch (e: Exception) {
+            logger.error(e) { "Failed to create account for $name." }
+            withContext(gameContext) {
+                accountDefinitions.remove(name)
+            }
+            return RegistrationResponse.UNAVAILABLE
+        }
+        AuditLog.info("registered $name from $hostname")
+        logger.info { "Account registered for $name." }
+        return RegistrationResponse.SUCCESS
+    }
+
+    private fun banned(variables: Map<String, Any>): Boolean {
+        val until = (variables["banned_until"] as? Number)?.toInt() ?: return false
+        return until > (System.currentTimeMillis() / 1000).toInt()
+    }
+
+    suspend fun connect(player: Player, client: Client, displayMode: Int = 0, viewport: Boolean = true) {
+        accounts.setup(player, client, displayMode, viewport)
+        withContext(gameContext) {
+            queue.await()
+            val existing = Players.findByAccount(player.accountName)
+            if (existing != null) {
+                logger.warn { "Logging out stale session for ${player.accountName} before login." }
+                accounts.logout(existing, safely = false)
+                client.disconnect(Response.ACCOUNT_ONLINE)
+                return@withContext
+            }
+            if (!accounts.index(player)) {
+                logger.warn { "Error setting up account" }
+                client.disconnect(Response.WORLD_FULL)
+                return@withContext
+            }
+            logger.info { "${if (viewport) "Player" else "Bot"} logged in ${player.accountName} index ${player.index}." }
+            client.login(player.name, player.index, player.rights.ordinal, member = World.members, membersWorld = World.members)
+            accounts.spawn(player, client)
+            AuditLog.event(player, "connected", player.tile)
+        }
+    }
+}

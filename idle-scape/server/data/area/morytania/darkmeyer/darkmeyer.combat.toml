@@ -1,0 +1,6 @@
+[vyrewatch]
+
+[vyrewatch.melee]
+range = 1
+target_hit = { offense = "crush", max = 110 }
+anim = "vyrewatch_attack"

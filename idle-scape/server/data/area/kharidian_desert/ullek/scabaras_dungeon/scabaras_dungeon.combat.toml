@@ -1,0 +1,31 @@
+[scarab_larva]
+death_anim = "scarab_larva_death"
+
+[scarab_larva.melee]
+range = 1
+target_hit = { offense = "crush", max = 10 }
+anim = "scarab_larva_attack"
+
+[scabaras_ranger]
+death_anim = "scabaras_ranger_death"
+
+[scabaras_ranger.range]
+range = 6
+target_hit = { offense = "range", max = 130 }
+anim = "scabaras_ranger_attack"
+
+[scabaras_lancer]
+death_anim = "scabaras_lancer_death"
+
+[scabaras_lancer.melee]
+range = 1
+target_hit = { offense = "crush", max = 130 }
+anim = "scabaras_lancer_attack"
+
+[scabaras_mage]
+death_anim = "scabaras_mage_death"
+
+[scabaras_mage.magic]
+range = 6
+target_hit = { offense = "magic", max = 104 }
+anim = "scabaras_mage_attack"

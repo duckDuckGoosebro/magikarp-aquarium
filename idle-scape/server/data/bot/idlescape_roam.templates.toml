@@ -1,0 +1,21 @@
+# Idle Scape: roam a spot like a real player - fetch food from the bank (or buy it), kill whatever low level creature is nearby, loot it and bury bones.
+[roam_kill_nearby]
+requires = [
+    { skill = { id = "$skill", min = 1, max = 40 } },
+]
+setup = [
+    { equipment = { weapon = { id = "bronze_sword,bronze_dagger,bronze_scimitar,iron_sword,iron_scimitar,steel_sword" } } },
+    { inventory = [{ id = "bread,cooked_meat,shrimps,trout,salmon,tuna,lobster,swordfish", min = 3 }] },
+    { area = { id = "$location" } },
+]
+actions = [
+    { interface = { option = "Select", id = "combat_styles:$style" } },
+    { fight_nearby = { max_level = 12, radius = 14, bury = true, loot = true } },
+]
+reactive = [
+    { eat = { heal_percent = 45 } },
+]
+produces = [
+    { item = "bones" },
+    { skill = "$skill" },
+]

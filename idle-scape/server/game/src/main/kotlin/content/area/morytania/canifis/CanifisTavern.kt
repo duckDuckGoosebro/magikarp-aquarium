@@ -1,0 +1,23 @@
+package content.area.morytania.canifis
+
+import content.entity.obj.door.Door.opened
+import content.entity.obj.door.DoubleDoor
+import world.gregs.voidps.engine.Script
+import world.gregs.voidps.engine.entity.character.move.tele
+import world.gregs.voidps.engine.entity.character.sound
+import world.gregs.voidps.engine.entity.obj.replace
+
+class CanifisTavern : Script {
+    init {
+        objectOperate("Open", "canifis_wooden_door_left_closed,canifis_wooden_door_right_closed") { (target) ->
+            anim("take")
+            sound("locked")
+            delay(1)
+            target.replace(target.def.opened, ticks = 3)
+            val other = DoubleDoor.get(this, target, target.def, 0)
+            other?.replace(other.def.opened, ticks = 3)
+            delay(2)
+            tele(3509, 3449)
+        }
+    }
+}

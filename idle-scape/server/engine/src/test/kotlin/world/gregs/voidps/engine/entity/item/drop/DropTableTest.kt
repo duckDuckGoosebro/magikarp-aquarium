@@ -1,0 +1,260 @@
+package world.gregs.voidps.engine.entity.item.drop
+
+import org.junit.jupiter.api.Assertions.*
+import org.junit.jupiter.api.Test
+import world.gregs.voidps.engine.data.Settings
+import world.gregs.voidps.engine.entity.World
+import world.gregs.voidps.engine.entity.character.player.Player
+import world.gregs.voidps.type.setRandom
+import kotlin.random.Random
+
+internal class DropTableTest {
+
+    @Test
+    fun `Roll number from 0 until drop table roll value`() {
+        setRandom(object : Random() {
+            override fun nextBits(bitCount: Int): Int = 0
+            override fun nextInt(from: Int, until: Int) = until - 1
+        })
+        val drops = DropTable(TableType.First, 100, listOf(), 1)
+        val roll: Int = drops.random(maximum = Int.MAX_VALUE)
+        assertEquals(99, roll)
+    }
+
+    @Test
+    fun `Roll number from 0 until value passed in`() {
+        setRandom(object : Random() {
+            override fun nextBits(bitCount: Int): Int = 0
+            override fun nextInt(from: Int, until: Int) = until - 1
+        })
+        val drops = DropTable(TableType.First, 0, listOf(), 1)
+        val roll: Int = drops.random(maximum = 100)
+        assertEquals(99, roll)
+    }
+
+    @Test
+    fun `Adjust roll chance by multiplier`() {
+        setRandom(object : Random() {
+            override fun nextBits(bitCount: Int): Int = 0
+            override fun nextInt(from: Int, until: Int) = until - 1
+        })
+        val drops = DropTable(TableType.First, 0, listOf(), 1)
+        val roll: Int = drops.random(maximum = 100, multiplier = 2.0)
+        assertTrue(roll in 0 until 50)
+    }
+
+    @Test
+    fun `Can't adjust roll chance by multiplier less than 1`() {
+        setRandom(object : Random() {
+            override fun nextBits(bitCount: Int): Int = 0
+            override fun nextInt(from: Int, until: Int) = until - 1
+        })
+        val drops = DropTable(TableType.First, 0, listOf(), 1)
+        val roll: Int = drops.random(maximum = 100, multiplier = 0.1)
+        assertEquals(99, roll)
+    }
+
+    @Test
+    fun `Roll with multiplier sorts ascending to reduce chances of most common items first`() {
+        setRandom(object : Random() {
+            override fun nextBits(bitCount: Int): Int = 0
+        })
+        val item1 = drop("1", 1)
+        val item2 = drop("2", 2)
+        val item3 = drop("2", 6)
+        val root = DropTable(TableType.First, 10, listOf(item3, item2, item1), 1)
+
+        val list = mutableListOf<ItemDrop>()
+        root.roll(list = list, multiplier = 2.0)
+
+        assertTrue(list.contains(item1))
+    }
+
+    @Test
+    fun `Multiplier ignores all type table with chances exceeding roll`() {
+        setRandom(object : Random() {
+            override fun nextBits(bitCount: Int): Int = 0
+            override fun nextInt(from: Int, until: Int) = until - 1
+        })
+        val table = DropTable(TableType.All, 1, listOf(drop("1", 1), drop("2", 1), drop("3", 1)), 1)
+        val roll: Int = table.random(maximum = -1, multiplier = 2.0)
+        assertEquals(0, roll)
+    }
+
+    @Test
+    fun `Multiplier clamps table with chances exceeding roll`() {
+        setRandom(object : Random() {
+            override fun nextBits(bitCount: Int): Int = 0
+            override fun nextInt(from: Int, until: Int) = until - 1
+        })
+        val table = DropTable(TableType.First, 2, listOf(drop("1", 1), drop("2", 1), drop("3", 1)), 1)
+        val roll: Int = table.random(maximum = -1, multiplier = 2.0)
+        assertEquals(1, roll)
+    }
+
+    @Test
+    fun `Roll every item in all type table`() {
+        val item1 = drop("1", 1)
+        val item2 = drop("2", 2)
+        val root = DropTable(TableType.All, -1, listOf(item1, item2), 1)
+
+        val list = mutableListOf<ItemDrop>()
+        root.collect(list, null, -1)
+
+        assertTrue(list.contains(item1))
+        assertTrue(list.contains(item2))
+    }
+
+    @Test
+    fun `Roll ignores failed predicate`() {
+        val item1 = drop("1", 1, predicate = { false })
+        val item2 = drop("2", 1, predicate = { true })
+        val player = Player()
+        val root = DropTable(TableType.All, -1, listOf(item1, item2), 1)
+
+        val list = mutableListOf<ItemDrop>()
+        root.collect(list, player, -1)
+
+        assertFalse(list.contains(item1))
+        assertTrue(list.contains(item2))
+    }
+
+    @Test
+    fun `Roll first item in table of tables`() {
+        val item1 = drop("1", 1, predicate = { true })
+        val item2 = drop("2", 1, predicate = { false })
+        val subTable1 = DropTable(TableType.All, 1, listOf(item1), 1)
+        val subTable2 = DropTable(TableType.All, 1, listOf(item2), 1)
+        val root = DropTable(TableType.First, -1, listOf(subTable1, subTable2), 1)
+
+        val list = mutableListOf<ItemDrop>()
+        root.collect(list, null, -1)
+
+        assertTrue(list.contains(item1))
+        assertFalse(list.contains(item2))
+    }
+
+    @Test
+    fun `Roll all tables of tables`() {
+        val item1 = drop("1", 1)
+        val item2 = drop("2", 1)
+        val subTable1 = DropTable(TableType.First, 1, listOf(item1), 1)
+        val subTable2 = DropTable(TableType.First, 1, listOf(item2), 1)
+        val root = DropTable(TableType.All, -1, listOf(subTable1, subTable2), 1)
+
+        val list = mutableListOf<ItemDrop>()
+        root.collect(list, null, -1)
+
+        assertTrue(list.contains(item1))
+        assertTrue(list.contains(item2))
+    }
+
+    @Test
+    fun `Selected sub-table rolling nothing doesn't fall through to the next drop`() {
+        setRandom(object : Random() {
+            override fun nextBits(bitCount: Int): Int = 0
+            override fun nextInt(from: Int, until: Int) = until - 1
+        })
+        val inSubTable = drop("a", 1)
+        val next = drop("b", 5)
+        val subTable = DropTable(TableType.First, 2, listOf(inSubTable), 5)
+        val root = DropTable(TableType.First, 10, listOf(subTable, next), 1)
+
+        val list = mutableListOf<ItemDrop>()
+        root.collect(list, null, 0)
+
+        assertTrue(list.isEmpty())
+    }
+
+    @Test
+    fun `Roll a random item`() {
+        setRandom(object : Random() {
+            override fun nextBits(bitCount: Int): Int = 2
+        })
+        val item1 = drop("1", 1)
+        val item2 = drop("2", 1)
+        val root = DropTable(TableType.First, 5, listOf(item1, item2), 1)
+
+        val list = root.roll()
+
+        assertEquals(listOf(item2), list)
+    }
+
+    @Test
+    fun `Roll a random nothing`() {
+        setRandom(object : Random() {
+            override fun nextBits(bitCount: Int): Int = 5
+        })
+        val item1 = drop("1", 1)
+        val item2 = drop("2", 1)
+        val root = DropTable(TableType.First, -1, listOf(item1, item2), 1)
+
+        val list = root.roll(maximumRoll = 10)
+
+        assertTrue(list.isEmpty())
+    }
+
+    @Test
+    fun `Don't collect drop with chance lower than roll`() {
+        val item1 = drop("1", 10)
+        val table = DropTable(TableType.First, -1, listOf(item1), 1)
+
+        val list = mutableListOf<ItemDrop>()
+        table.collect(list, null, 100)
+
+        assertFalse(list.contains(item1))
+    }
+
+    @Test
+    fun `Don't roll members drops in non-members world`() {
+        Settings.load(mapOf("world.members" to "false"))
+        val item1 = drop("1", 1)
+        val item2 = drop("2", 1, predicate = { !World.members })
+        val item3 = drop("3", 1, predicate = { World.members })
+        val root = DropTable(TableType.All, -1, listOf(item1, item2, item3), 1)
+
+        val list = mutableListOf<ItemDrop>()
+        root.collect(list, Player(), -1)
+
+        assertTrue(list.contains(item1))
+        assertTrue(list.contains(item2))
+        assertFalse(list.contains(item3))
+    }
+
+    @Test
+    fun `Roll members and non-listed drops in a members world`() {
+        Settings.load(mapOf("world.members" to "true"))
+        val item1 = drop("1", 1)
+        val item2 = drop("2", 1, predicate = { !World.members })
+        val item3 = drop("3", 1, predicate = { World.members })
+        val root = DropTable(TableType.All, -1, listOf(item1, item2, item3), 1)
+
+        val list = mutableListOf<ItemDrop>()
+        root.collect(list, Player(), -1)
+
+        assertTrue(list.contains(item1))
+        assertFalse(list.contains(item2))
+        assertTrue(list.contains(item3))
+    }
+
+    @Test
+    fun `Build from map`() {
+        val item1 = drop("1", 2)
+        val table = DropTable(
+            type = TableType.All,
+            roll = 12,
+            drops = listOf(item1),
+            chance = 6,
+        )
+        assertEquals(DropTable(TableType.All, 12, listOf(item1), 6), table)
+    }
+
+    @Test
+    fun `Build from map defaults`() {
+        val item1 = drop("1", 2)
+        val table = DropTable(drops = listOf(item1))
+        assertEquals(DropTable(TableType.First, 1, listOf(item1), -1), table)
+    }
+
+    private fun drop(id: String, chance: Int, predicate: ((Player) -> Boolean)? = null): ItemDrop = ItemDrop(id, 1..1, chance, predicate)
+}

@@ -1,0 +1,8 @@
+# Not committed: bundled Java, build output, Jagex game cache, player saves
+jre/
+**/build/
+**/.gradle/
+server/data/cache/
+server/data/saves/
+server/data/.temp/
+server/data/errors/

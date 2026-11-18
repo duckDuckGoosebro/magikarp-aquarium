@@ -1,0 +1,171 @@
+package content.skill.fishing
+
+import com.github.michaelbull.logging.InlineLogger
+import content.skill.constitution.drink.JUJU_SHARK_PERCENT
+import content.skill.constitution.drink.jujuActive
+import content.skill.summoning.familiarActsAsHarpoon
+import content.skill.summoning.familiarBoost
+import net.pearx.kasechange.toLowerSpaceCase
+import net.pearx.kasechange.toTitleCase
+import world.gregs.voidps.engine.Script
+import world.gregs.voidps.engine.client.message
+import world.gregs.voidps.engine.client.ui.chat.plural
+import world.gregs.voidps.engine.client.ui.closeDialogue
+import world.gregs.voidps.engine.client.variable.remaining
+import world.gregs.voidps.engine.client.variable.stop
+import world.gregs.voidps.engine.data.definition.ItemDefinitions
+import world.gregs.voidps.engine.data.definition.Rows
+import world.gregs.voidps.engine.data.definition.Tables
+import world.gregs.voidps.engine.entity.World
+import world.gregs.voidps.engine.entity.character.npc.NPC
+import world.gregs.voidps.engine.entity.character.player.Player
+import world.gregs.voidps.engine.entity.character.player.chat.ChatType
+import world.gregs.voidps.engine.entity.character.player.chat.inventoryFull
+import world.gregs.voidps.engine.entity.character.player.name
+import world.gregs.voidps.engine.entity.character.player.skill.Skill
+import world.gregs.voidps.engine.entity.character.player.skill.exp.exp
+import world.gregs.voidps.engine.entity.character.player.skill.level.Level.has
+import world.gregs.voidps.engine.entity.character.player.skill.level.Level.success
+import world.gregs.voidps.engine.inv.add
+import world.gregs.voidps.engine.inv.carriesItem
+import world.gregs.voidps.engine.inv.inventory
+import world.gregs.voidps.engine.inv.remove
+import world.gregs.voidps.engine.inv.transact.TransactionError
+import world.gregs.voidps.type.random
+
+class Fishing : Script {
+
+    val logger = InlineLogger()
+
+    init {
+        npcOperate("Bait", "fishing_spot_*") { (target) ->
+            fish(this, target, "Bait")
+        }
+        npcOperate("Cage", "fishing_spot_*") { (target) ->
+            fish(this, target, "Cage")
+        }
+        npcOperate("Net", "fishing_spot_*") { (target) ->
+            fish(this, target, "Net")
+        }
+        npcOperate("Lure", "fishing_spot_*") { (target) ->
+            fish(this, target, "Lure")
+        }
+        npcOperate("Harpoon", "fishing_spot_*") { (target) ->
+            fish(this, target, "Harpoon")
+        }
+    }
+
+    suspend fun fish(player: Player, target: NPC, option: String) {
+        player.arriveDelay()
+        val spot = Rows.getOrNull("fishing_spots.${target.id}") ?: return
+        val fish = spot.itemList(option.lowercase())
+        target.getOrPut("fishers") { mutableSetOf<String>() }.add(player.name)
+        player.softTimers.start("fishing")
+        player.closeDialogue()
+        val tile = target.tile
+        var first = true
+        fishing@ while (true) {
+            if (player.inventory.isFull()) {
+                player.message("Your inventory is too full to hold any more fish.")
+                break
+            }
+
+            if (target.tile != tile) {
+                break
+            }
+
+            val minimumLevel = fish.minOf { Tables.int("fishing.$it.level") }
+            if (!player.has(Skill.Fishing, minimumLevel, true)) {
+                break
+            }
+
+            val tackles = spot.itemList("${option.lowercase()}_tackle")
+            // The ibis and granite lobster spear fish themselves, standing in for a harpoon.
+            val tackle = tackles.firstOrNull { tackle -> player.carriesItem(tackle) || (tackle == "harpoon" && player.familiarActsAsHarpoon()) }
+            if (tackle == null) {
+                player.message("You need a ${tackles.first().toTitleCase()} to catch these fish.")
+                break@fishing
+            }
+
+            var bait: String? = null
+            var required: String? = null
+            for (fish in fish) {
+                val b = Tables.item("fishing.$fish.bait")
+                if (required == null && b != "empty_box_fish") {
+                    required = b
+                }
+                if (b == "empty_box_fish" || player.carriesItem(b)) {
+                    bait = b
+                    break
+                }
+            }
+            if (bait == null) {
+                player.message("You don't have any ${required?.toTitleCase()?.plural(2)}.")
+                break
+            }
+            if (first) {
+                player.message(ItemDefinitions.get(tackle)["cast", ""], ChatType.Filter)
+            }
+            val remaining = player.remaining("action_delay")
+            if (remaining < 0) {
+                player.face(target)
+                val rod = tackle == "fishing_rod" || tackle == "fly_fishing_rod" || tackle == "barbarian_rod"
+                player.anim("fish_${if (rod) if (first) "fishing_rod" else "rod" else tackle}")
+                player.pause(5)
+            } else if (remaining > 0) {
+                return
+            }
+            if (first) {
+                first = false
+            }
+            for (item in fish) {
+                val row = Rows.getOrNull("fishing.$item") ?: continue
+                if (bait != row.item("bait")) {
+                    continue
+                }
+                val requiredLevel = row.int("level")
+                val chance = row.intRange("chance")
+                val experience = row.int("xp")
+                val level = player.levels.get(Skill.Fishing)
+                if (level >= requiredLevel && success(level + player.familiarBoost(Skill.Fishing), chance)) {
+                    if (bait != "empty_box_fish" && !player.inventory.remove(bait)) {
+                        break@fishing
+                    }
+                    player.exp(Skill.Fishing, experience.toDouble())
+                    addCatch(player, item)
+                    break
+                }
+            }
+            player.stop("action_delay")
+        }
+        target.get<MutableSet<String>>("fishers")?.remove(player.name)
+        player.softTimers.stop("fishing")
+        player.clearAnim()
+    }
+
+    fun addCatch(player: Player, catch: String) {
+        var fish = catch
+        var message = "You catch some ${fish.toLowerSpaceCase()}."
+        if (bigCatch(fish)) {
+            fish = fish.replace("raw_", "big_")
+            message = "You catch an enormous ${catch.toLowerSpaceCase()}!"
+        } else if (fish == "raw_shark" && player.jujuActive("juju_fishing") && random.nextInt(100) < JUJU_SHARK_PERCENT) {
+            fish = "raw_baron_shark"
+            message = "You catch a raw baron shark!"
+        }
+        player.inventory.add(fish)
+        when (player.inventory.transaction.error) {
+            TransactionError.None -> player.message(message, ChatType.Filter)
+            is TransactionError.Full -> player.inventoryFull()
+            else -> logger.warn { "Error adding fish $fish ${player.inventory.transaction.error}" }
+        }
+    }
+
+    fun bigCatch(catch: String): Boolean = when {
+        World.members -> false
+        catch == "raw_bass" && random.nextInt(1000) == 0 -> true
+        catch == "raw_swordfish" && random.nextInt(2500) == 0 -> true
+        catch == "raw_shark" && random.nextInt(5000) == 0 -> true
+        else -> false
+    }
+}

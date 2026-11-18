@@ -1,0 +1,212 @@
+package content.entity.player.bank
+
+import com.github.michaelbull.logging.InlineLogger
+import content.entity.player.bank.Bank.tabIndex
+import content.entity.player.dialogue.type.choice
+import content.entity.player.dialogue.type.intEntry
+import world.gregs.voidps.engine.Script
+import world.gregs.voidps.engine.client.message
+import world.gregs.voidps.engine.client.ui.chat.toDigitGroupString
+import world.gregs.voidps.engine.client.ui.menu
+import world.gregs.voidps.engine.entity.character.mode.interact.ItemOnObjectInteract
+import world.gregs.voidps.engine.entity.character.player.Player
+import world.gregs.voidps.engine.entity.item.Item
+import world.gregs.voidps.engine.inv.Inventory
+import world.gregs.voidps.engine.inv.beastOfBurden
+import world.gregs.voidps.engine.inv.equipment
+import world.gregs.voidps.engine.inv.inventory
+import world.gregs.voidps.engine.inv.transact.TransactionError
+import world.gregs.voidps.engine.inv.transact.operation.AddItemLimit.addToLimit
+import world.gregs.voidps.engine.inv.transact.operation.RemoveItem.remove
+import world.gregs.voidps.engine.inv.transact.operation.ShiftItem.shift
+
+class BankDeposit : Script {
+
+    init {
+        interfaceOption(id = "bank_side:inventory") { (item, slot, option) ->
+            val amount = when (option) {
+                "Deposit-1" -> 1
+                "Deposit-5" -> 5
+                "Deposit-10" -> 10
+                "Deposit-*" -> get("last_bank_amount", 0)
+                "Deposit-All" -> Int.MAX_VALUE
+                "Deposit-X" -> intEntry("Enter amount:").also {
+                    set("last_bank_amount", it)
+                }
+                else -> return@interfaceOption
+            }
+            deposit(this, inventory, item, amount, slot)
+        }
+
+        interfaceOption(id = "bank_deposit_box:inventory") { (item, slot, option) ->
+            val amount = when (option) {
+                "Deposit-1" -> 1
+                "Deposit-5" -> 5
+                "Deposit-10" -> 10
+                "Deposit-All" -> Int.MAX_VALUE
+                "Deposit-X" -> intEntry("Enter amount:").also {
+                    set("last_bank_amount", it)
+                }
+                else -> return@interfaceOption
+            }
+            deposit(this, inventory, item, amount, slot)
+        }
+
+        interfaceOption("Deposit carried items", "bank:carried") {
+            if (inventory.isEmpty()) {
+                message("You have no items in your inventory to deposit.")
+            } else {
+                bankAll(this, inventory)
+            }
+        }
+
+        interfaceOption("Deposit carried items", "bank_deposit_box:carried") {
+            if (inventory.isEmpty()) {
+                message("You have no items in your inventory to deposit.")
+            } else {
+                bankAll(this, inventory)
+            }
+        }
+
+        interfaceOption("Deposit worn items", "bank:worn") {
+            if (equipment.isEmpty()) {
+                message("You have no equipped items to deposit.")
+            } else {
+                bankAll(this, equipment)
+            }
+        }
+
+        interfaceOption("Deposit worn items", "bank_deposit_box:worn") {
+            if (equipment.isEmpty()) {
+                message("You have no equipped items to deposit.")
+            } else {
+                bankAll(this, equipment)
+            }
+        }
+
+        interfaceOption("Deposit beast of burden inventory", "bank:burden") {
+            // TODO no familiar & no bob familiar messages
+            if (beastOfBurden.isEmpty()) {
+                message("Your familiar has no items to deposit.")
+            } else {
+                bankAll(this, beastOfBurden)
+            }
+        }
+
+        interfaceOption("Deposit beast of burden inventory", "bank_deposit_box:burden") {
+            // TODO no familiar & no bob familiar messages
+            if (beastOfBurden.isEmpty()) {
+                message("Your familiar has no items to deposit.")
+            } else {
+                bankAll(this, beastOfBurden)
+            }
+        }
+    }
+
+    fun bankAll(player: Player, inventory: Inventory) {
+        for (index in inventory.indices) {
+            val item = inventory[index]
+            if (item.isNotEmpty()) {
+                deposit(player, inventory, item, item.amount, index)
+            }
+        }
+    }
+
+    companion object {
+        private val logger = InlineLogger()
+
+        fun deposit(player: Player, inventory: Inventory, item: Item, amount: Int, slot: Int = -1, check: Boolean = true) {
+            if ((check && player.menu != "bank" && player.menu != "bank_deposit_box") || amount < 1) {
+                return
+            }
+
+            when (item.def["unbankable", 0]) {
+                1 -> {
+                    player.message("This item cannot be banked.")
+                    return
+                }
+                2 -> {
+                    // Event items (e.g. Evil Bob's fish-like things) can't leave the event;
+                    // depositing them destroys them rather than storing them in the bank.
+                    val toDestroy = minOf(amount, inventory.count(item.id))
+                    if (toDestroy > 0) {
+                        inventory.transaction { remove(item.id, toDestroy) }
+                    }
+                    return
+                }
+            }
+
+            val notNoted = if (item.isNote) item.noted else item
+            if (notNoted == null) {
+                logger.warn { "Issue depositing noted item $item" }
+                return
+            }
+
+            val tab = player["open_bank_tab", 1] - 1
+            val bank = player.bank
+            var shifted = false
+            inventory.transaction {
+                val existing = bank.indexOf(notNoted.id)
+                val available = inventory.count(item.id)
+                val added = link(bank).addToLimit(notNoted.id, minOf(amount, available))
+                if (added == 0) {
+                    error = TransactionError.Full()
+                } else {
+                    // Remove from the slot clicked before taking from other slots
+                    if (slot in inventory.indices && inventory[slot].id == item.id) {
+                        remove(slot, item.id, added)
+                    } else {
+                        remove(item.id, added)
+                    }
+                    if (tab > 0 && existing == -1) {
+                        // Shift item into tab
+                        val index = bank.freeIndex() - 1
+                        val to = tabIndex(player, tab + 1)
+                        link(bank).shift(index, to)
+                        shifted = true
+                    }
+                }
+            }
+            when (inventory.transaction.error) {
+                TransactionError.None -> if (shifted) player.inc("bank_tab_$tab")
+                is TransactionError.Full -> player.message("Your bank is too full to deposit any more.")
+                TransactionError.Invalid -> logger.info { "Bank deposit issue: $player $item $amount $inventory " }
+                else -> {}
+            }
+        }
+
+        suspend fun itemOnDeposit(player: Player, it: ItemOnObjectInteract) {
+            val count = player.inventory.count(it.item.id)
+            player.choice("How many would you like to deposit?") {
+                option("One") {
+                    anim("human_lever_down")
+                    deposit(player, player.inventory, it.item, 1, check = false)
+                }
+                if (count == 2) {
+                    option("Both") {
+                        anim("human_lever_down")
+                        deposit(player, player.inventory, it.item, 2, check = false)
+                    }
+                } else if (count > 5) {
+                    option("Five") {
+                        anim("human_lever_down")
+                        deposit(player, player.inventory, it.item, 5, check = false)
+                    }
+                }
+                if (count > 2) {
+                    option("X") {
+                        val amount = intEntry("How many would you like to deposit? 1 - ${count.toDigitGroupString()}")
+                        if (amount > 0) {
+                            anim("human_lever_down")
+                            deposit(player, player.inventory, it.item, amount, check = false)
+                        }
+                    }
+                    option("All") {
+                        anim("human_lever_down")
+                        deposit(player, player.inventory, it.item, count, check = false)
+                    }
+                }
+            }
+        }
+    }
+}

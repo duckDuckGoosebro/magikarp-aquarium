@@ -1,0 +1,542 @@
+package content.bot
+
+import world.gregs.voidps.engine.entity.character.mode.EmptyMode
+import world.gregs.voidps.engine.entity.character.player.skill.Skill
+import world.gregs.voidps.engine.inv.inventory
+import com.github.michaelbull.logging.InlineLogger
+import content.bot.behaviour.Behaviour
+import content.bot.behaviour.BehaviourFrame
+import content.bot.behaviour.BehaviourState
+import content.bot.behaviour.BotGameWorld
+import content.bot.behaviour.BotWorld
+import content.bot.behaviour.HardReason
+import content.bot.behaviour.Reason
+import content.bot.behaviour.action.BotWait
+import content.bot.behaviour.activity.ActivityPicker
+import content.bot.behaviour.activity.ActivityPicker.Companion.DEFAULT_PICKERS
+import content.bot.behaviour.activity.ActivitySlots
+import content.bot.behaviour.activity.BotActivity
+import content.bot.behaviour.condition.BotInArea
+import content.bot.behaviour.condition.Condition
+import content.bot.behaviour.loadBehaviours
+import content.bot.behaviour.perception.BotCombatContext
+import content.bot.behaviour.setup.DynamicResolvers
+import content.bot.behaviour.setup.Resolver
+import world.gregs.voidps.engine.data.ConfigFiles
+import world.gregs.voidps.engine.data.Settings
+import world.gregs.voidps.engine.data.definition.AreaDefinition
+import world.gregs.voidps.engine.data.definition.Areas
+import world.gregs.voidps.engine.event.AuditLog
+import world.gregs.voidps.engine.timer.toTicks
+import world.gregs.voidps.type.Tile
+import world.gregs.voidps.type.random
+import java.util.IdentityHashMap
+import java.util.concurrent.TimeUnit
+import kotlin.collections.filter
+
+/**
+ * Manages [Bot] behaviour execution and activity scheduling
+ * - Assigns [activities] to idle bots when possible.
+ * - Advances the current [BehaviourFrame].
+ * - Resolves unmet [BotActivity.setup] requirements.
+ * - Handles activity completion, failure, and slot allocation.
+ */
+class BotManager(
+    private val activities: MutableMap<String, BotActivity> = mutableMapOf(),
+    val resolvers: MutableMap<String, MutableList<Resolver>> = mutableMapOf(),
+    private val groups: MutableMap<String, MutableList<String>> = mutableMapOf(),
+    private val world: BotWorld = BotGameWorld(),
+    private val pickers: List<ActivityPicker> = DEFAULT_PICKERS,
+) : Runnable {
+    internal val slots = ActivitySlots()
+    val bots = mutableListOf<Bot>()
+    private val logger = InlineLogger("BotManager")
+
+    val activityNames: Set<String>
+        get() = activities.keys
+
+    fun activity(id: String): BotActivity? = activities[id]
+
+    fun load(files: ConfigFiles): BotManager {
+        loadBehaviours(files, activities, resolvers)
+        validateAreas()
+        reloadGroups()
+        return this
+    }
+
+    /**
+     * Check activities with multiple areas or tags only reference areas which exist
+     */
+    internal fun validateAreas() {
+        for (activity in activities.values) {
+            val area = activity.area ?: continue
+            if (area.multiple) {
+                area.validate(activity.id)
+            }
+        }
+    }
+
+    internal fun reloadGroups() {
+        groups.clear()
+        // Group activities by requirement types
+        for (activity in activities.values) {
+            for (req in activity.requires) {
+                for (key in req.events()) {
+                    groups.getOrPut(key) { mutableListOf() }.add(activity.id)
+                }
+            }
+        }
+        val total = Areas.getAll().sumOf { ActivitySlots.capacity(it.name) ?: 0 }
+        logger.info { "Total bot area capacity: $total" }
+    }
+
+    fun add(bot: Bot) {
+        bots.add(bot)
+        // Update all available activities
+        bot.available.clear()
+        for (activity in activities.values) {
+            if (activity.requires.any { !it.check(bot.player) }) {
+                continue
+            }
+            bot.available.add(activity.id)
+        }
+    }
+
+    fun remove(bot: Bot): Boolean {
+        if (bots.remove(bot)) {
+            stop(bot)
+            return true
+        }
+        return false
+    }
+
+    override fun run() {
+        BotMetrics.beginRun()
+        var i = 0
+        while (i < bots.size) {
+            val bot = bots[i++]
+            if (BotMetrics.measuring) {
+                val start = System.nanoTime()
+                tick(bot)
+                BotMetrics.recordBotTick(System.nanoTime() - start)
+            } else {
+                tick(bot)
+            }
+        }
+        BotMetrics.endRun(bots.size)
+    }
+
+    fun tick(bot: Bot) {
+        try {
+            if (bot.noTask()) {
+                assignNext(bot)
+                return
+            }
+            updateCombatContext(bot)
+            runReactive(bot)
+            execute(bot)
+        } catch (exception: Exception) {
+            logger.error(exception) { "Error in bot '${bot.player.accountName}' tick ${bot.frames.map { it.behaviour.id }}." }
+        }
+    }
+
+    /** Idle players act like real players: eat when hurt, and back out of the fight when out of food and nearly dead. */
+    private fun survive(bot: Bot, frame: BehaviourFrame) {
+        val max = bot.levels.getMax(Skill.Constitution)
+        if (max <= 0) return
+        val hp = bot.levels.get(Skill.Constitution)
+        if (hp * 100 > max * 50) return
+        val hasFood = bot.player.inventory.items.any { !it.isEmpty() && it.def.options.contains("Eat") }
+        if (hasFood) {
+            content.bot.behaviour.action.BotEatFood(50).update(bot, world, frame)
+        } else if (hp * 100 <= max * 25) {
+            bot.player.mode = EmptyMode
+            bot.stop()
+        }
+    }
+
+    private fun runReactive(bot: Bot) {
+        val rootFrame = bot.frames.firstOrNull() ?: return
+        if (bot.idleSkills.isNotEmpty()) {
+            try { survive(bot, rootFrame) } catch (exception: Exception) { logger.error(exception) { "Survival failed." } }
+        }
+        val reactive = rootFrame.behaviour.reactive
+        if (reactive.isEmpty()) return
+        for (action in reactive) {
+            try {
+                action.update(bot, world, rootFrame)
+            } catch (exception: Exception) {
+                logger.error(exception) { "Reactive action failed for bot '${bot.player.accountName}' activity=${rootFrame.behaviour.id} action=$action." }
+            }
+        }
+    }
+
+    private fun updateCombatContext(bot: Bot) {
+        val activity = bot.frames.firstOrNull()?.behaviour
+        if (activity != null && activity.reactive.isNotEmpty()) {
+            bot.combatContext = BotCombatContext(bot)
+        } else if (bot.combatContext != null) {
+            bot.combatContext = null
+        }
+    }
+
+    /**
+     * Assign activity [id] to [bot]
+     * Useful for debugging
+     */
+    fun assign(bot: Bot, id: String): Boolean {
+        val activity = activities[id] ?: return false
+        assign(bot, activity)
+        return true
+    }
+
+    /**
+     * Assign an activity to the [bot] chosen by the [pickers].
+     */
+    private fun assignNext(bot: Bot) {
+        if (bot.pinned != null) {
+            bot.evaluate.clear()
+        } else if (bot.evaluate.isNotEmpty()) {
+            updateAvailable(bot)
+        }
+        if (bot.player["debug", false]) {
+            logger.trace { "Picking new activity from ${bot.available} for bot ${bot.player.accountName}." }
+        }
+        var activity = pickers.firstNotNullOfOrNull { it.pick(bot, activities, idle) { activity -> hasRequirements(bot, activity) } }
+        if (activity == null) {
+            if (bot.player["debug", false]) {
+                logger.debug { "No activities with requirements met for bot: ${bot.player.accountName}." }
+                debugActivities(bot)
+            }
+            activity = activityFallback(bot)
+        }
+        assign(bot, activity)
+    }
+
+    /**
+     * When no available activity is found either idle or spawn requirements for a bot
+     */
+    private fun activityFallback(bot: Bot): BotActivity {
+        if (bot.pinned != null) {
+            return idle
+        }
+        if (!Settings["bots.spawnRequirements", false] || bot.player.networked) {
+            return idle
+        }
+        for (activity in activities.values) {
+            if (!slots.hasFree(activity)) {
+                continue
+            }
+            for (requirement in activity.requires) {
+                Condition.grant(bot.player, requirement)
+            }
+            for (requirement in activity.setup) {
+                Condition.grant(bot.player, requirement)
+            }
+            if (hasRequirements(bot, activity)) {
+                return activity
+            }
+        }
+        return idle
+    }
+
+    /**
+     * Remove invalid activities, check for new valid activities based on recent state changes ready to [Bot.evaluate].
+     */
+    internal fun updateAvailable(bot: Bot) {
+        // Remove activities which are no longer available
+        val iterator = bot.available.iterator()
+        while (iterator.hasNext()) {
+            val id = iterator.next()
+            val activity = activities[id] ?: continue
+            if (activity.requires.any { !it.check(bot.player) }) {
+                iterator.remove()
+            }
+        }
+        // Permanent groups to always re-evaluate (often no way to listen for changes)
+        for (group in PERMANENT_GROUPS) {
+            makeAvailable(bot, group)
+        }
+        // Add activities which have become available
+        for (group in bot.evaluate) {
+            makeAvailable(bot, group)
+        }
+        bot.evaluate.clear()
+    }
+
+    private fun makeAvailable(bot: Bot, group: String) {
+        for (id in groups[group] ?: return) {
+            val activity = activities[id] ?: continue
+            if (activity.requires.any { !it.check(bot.player) }) {
+                continue
+            }
+            bot.available.add(activity.id)
+        }
+    }
+
+    private val idle = BotActivity("idle", timeout = TimeUnit.HOURS.toTicks(1), actions = listOf(BotWait(TimeUnit.SECONDS.toTicks(30))))
+
+    private fun hasRequirements(bot: Bot, activity: BotActivity?): Boolean = activity != null && slots.hasFree(activity) && !bot.blocked.contains(activity.id) && activity.requires.all { it.check(bot.player) }
+
+    private fun assign(bot: Bot, unbound: BotActivity) {
+        val activity = bind(bot, unbound)
+        AuditLog.event(bot, "assigned", activity.id)
+        if (bot.player["debug", false]) {
+            logger.info { "Assigned task '${activity.id}' area=${activity.boundArea} to bot '${bot.player.accountName}'." }
+        }
+        slots.occupy(activity)
+        bot.previous = activity
+        bot.queue(BehaviourFrame(activity))
+    }
+
+    /**
+     * Limit an activity to one of its areas, picking randomly from those with free slots weighted towards the closest.
+     * Activities already bound (i.e. repeating the previous activity) keep their area.
+     */
+    internal fun bind(bot: Bot, activity: BotActivity): BotActivity {
+        if (activity.boundArea != null) {
+            return activity
+        }
+        val all = activity.area?.areas()
+        if (all.isNullOrEmpty()) {
+            return activity
+        }
+        val free = all.filter { slots.hasFree(it) }
+        val candidates = free.ifEmpty { all }
+        if (candidates.size == 1) {
+            return activity.bind(candidates.first())
+        }
+        val weights = candidates.map { weight(bot, it) }
+        var roll = random.nextInt(weights.sum())
+        for ((index, weight) in weights.withIndex()) {
+            roll -= weight
+            if (roll < 0) {
+                return activity.bind(candidates[index])
+            }
+        }
+        return activity.bind(candidates.last())
+    }
+
+    private val centres = IdentityHashMap<AreaDefinition, Tile?>()
+
+    private fun weight(bot: Bot, area: String): Int {
+        val definition = Areas.getOrNull(area) ?: return 1
+        val centre = centres.getOrPut(definition) { centre(definition) } ?: return 1
+        val distance = bot.tile.distanceTo(centre)
+        if (distance < 0) {
+            return 1 // Different level
+        }
+        val steps = 1 + distance / DISTANCE_FALLOFF
+        return (WEIGHT_SCALE / (steps * steps)).coerceAtLeast(1)
+    }
+
+    private fun centre(definition: AreaDefinition): Tile? {
+        var count = 0
+        var x = 0L
+        var y = 0L
+        var level = 0
+        for (tile in definition.area) {
+            if (count++ == 0) {
+                level = tile.level
+            }
+            x += tile.x
+            y += tile.y
+        }
+        return if (count == 0) null else Tile((x / count).toInt(), (y / count).toInt(), level)
+    }
+
+    /**
+     * Check and update [bot]'s current activity and action state
+     */
+    private fun execute(bot: Bot) {
+        val frame = bot.frame()
+        when (val state = frame.state) {
+            BehaviourState.Running -> frame.update(bot, world)
+            BehaviourState.Pending -> start(bot, frame)
+            BehaviourState.Success -> nextAction(bot, frame)
+            is BehaviourState.Failed -> handleFail(bot, frame, state)
+            is BehaviourState.Wait -> {
+                val behaviour = frame.behaviour
+                if (bot.player["debug", false]) {
+                    logger.trace { "Bot wait: ${behaviour.id} state: ${frame.state} action: ${frame.action()}." }
+                    bot["previous_state"] = frame.state
+                }
+                if (--state.ticks <= 0) {
+                    frame.state = state.next
+                }
+            }
+        }
+    }
+
+    /**
+     * Check [bot] has requirements to start the current activity
+     * Find [resolvers] if activity has set up [Condition]s
+     */
+    private fun start(bot: Bot, frame: BehaviourFrame) {
+        val behaviour = frame.behaviour
+        for (requirement in behaviour.requires) {
+            if (requirement.check(bot.player)) {
+                continue
+            }
+            frame.fail(Reason.Requirement(requirement))
+            return
+        }
+        val debug = bot.player["debug", false]
+        for (requirement in behaviour.setup) {
+            if (requirement.check(bot.player)) {
+                continue
+            }
+            if (bot.pinned == behaviour.id && requirement !is BotInArea) {
+                continue
+            }
+            frame.blocked.removeAll(DynamicResolvers.ids())
+            val resolvers = buildList {
+                DynamicResolvers.resolver(bot.player, requirement)?.also { add(it) }
+                requirement.keys()
+                    .flatMap { resolvers[it].orEmpty() }
+                    .forEach(::add)
+            }
+            val resolver = resolvers
+                .filter { !frame.blocked.contains(it.id) && it.requires.none { fact -> !fact.check(bot.player) } }
+                .minByOrNull { it.weight }
+            if (resolver == null) {
+                if (debug) {
+                    debugResolvers(behaviour, requirement, resolvers, frame, bot)
+                }
+                frame.fail(Reason.Requirement(requirement)) // No way to resolve
+                return
+            }
+            // Attempt resolution
+            AuditLog.event(bot, "start_resolver", resolver.id, behaviour.id)
+            if (debug) {
+                logger.info { "Starting ${resolver.id} for ${behaviour.id} requirement: $requirement." }
+            }
+            frame.blocked.add(resolver.id)
+            val resolverFrame = BehaviourFrame(resolver)
+            bot.queue(resolverFrame)
+            return
+        }
+        AuditLog.event(bot, "start_activity", behaviour.id)
+        if (debug) {
+            logger.info { "Starting activity: ${behaviour.id}." }
+        }
+        bot.blocked.add(behaviour.id)
+        frame.start(bot, world)
+    }
+
+    /**
+     * Move onto the next action in a behaviour or remove the behaviour from the stack if it is completed
+     */
+    private fun nextAction(bot: Bot, frame: BehaviourFrame) {
+        val debug = bot.player["debug", false]
+        if (frame.next()) {
+            if (debug) {
+                logger.debug { "Next action: ${frame.action()} for ${frame.behaviour.id}." }
+            }
+            frame.start(bot, world)
+            return
+        }
+        val behaviour = frame.behaviour
+        if (debug) {
+            logger.debug { "Completed action: ${frame.action()} for ${behaviour.id}." }
+        }
+        AuditLog.event(bot, "completed", frame.behaviour.id)
+        bot.frames.pop()
+        if (!bot.noTask()) {
+            val parent = bot.frame()
+            parent.blocked.remove(behaviour.id)
+            parent.timeout = 0
+        }
+        if (behaviour is BotActivity) {
+            bot.blocked.remove(behaviour.id)
+            bot.lastSuccessful = behaviour
+            slots.release(behaviour)
+        }
+    }
+
+    /**
+     * Stop the current activity or remove the current resolver
+     */
+    private fun handleFail(bot: Bot, frame: BehaviourFrame, state: BehaviourState.Failed) {
+        val behaviour = frame.behaviour
+        val action = frame.action()
+        if (bot.player["debug", false]) {
+            logger.warn { "Failed ${behaviour.id} action=${action::class.simpleName}, reason=${state.reason}, bot=${bot.player.accountName}." }
+        }
+        AuditLog.event(bot, "failed", behaviour.id, state.reason, frame.index, action::class.simpleName)
+        if (state.reason is HardReason) {
+            stop(bot)
+        } else {
+            bot.frames.pop()
+        }
+        if (behaviour is BotActivity) {
+            val pinnedSoft = bot.pinned == behaviour.id && state.reason !is Reason.Cancelled
+            if (!pinnedSoft) {
+                bot.blocked.add(behaviour.id)
+            } else {
+                bot.blocked.remove(behaviour.id)
+            }
+            if (state.reason !is HardReason) {
+                slots.release(behaviour)
+            }
+        }
+    }
+
+    /**
+     * Remove all behaviours and free up activity slots
+     */
+    fun stop(bot: Bot) {
+        for (frame in bot.frames) {
+            if (frame.behaviour is BotActivity) {
+                slots.release(frame.behaviour)
+            }
+        }
+        bot.reset()
+    }
+
+    private fun debugResolvers(behaviour: Behaviour, requirement: Condition, resolvers: List<Resolver>, frame: BehaviourFrame, bot: Bot) {
+        logger.warn { "No resolver found for keys=${requirement.keys()} id=${behaviour.id}, requirement=$requirement." }
+        for (resolver in resolvers) {
+            if (frame.blocked.contains(resolver.id)) {
+                logger.debug { "Resolver ${resolver.id} - Blocked by frame behaviour: ${frame.behaviour.id}." }
+                break
+            }
+            for (requirement in resolver.requires) {
+                if (!requirement.check(bot.player)) {
+                    logger.debug { "Resolver ${resolver.id} - Failed requirement: $requirement." }
+                    return
+                }
+            }
+            logger.debug { "Resolver ${resolver.id} - Available." }
+        }
+    }
+
+    private fun debugActivities(bot: Bot) {
+        logger.info { "Failed to find activity for bot ${bot.player.accountName}." }
+        for (id in bot.available) {
+            val activity = activities[id] ?: continue
+            if (!slots.hasFree(activity)) {
+                logger.trace { "Activity: $id - No available slots." }
+            } else if (bot.blocked.contains(activity.id)) {
+                logger.trace { "Activity: $id - Blocked." }
+            } else {
+                for (requirement in activity.requires) {
+                    if (!requirement.check(bot.player)) {
+                        logger.trace { "Activity: $id - Failed requirement: $requirement" }
+                        break
+                    }
+                }
+            }
+        }
+    }
+
+    private companion object {
+        val PERMANENT_GROUPS = listOf("clock", "tile", "mode", "queue", "timer", "object")
+
+        /**
+         * Distance in tiles per step of falloff in an area's chance of being picked (1/steps²), see [BotManager.bind]
+         */
+        const val DISTANCE_FALLOFF = 50
+        const val WEIGHT_SCALE = 10_000
+    }
+}

@@ -1,0 +1,5 @@
+[hans]
+id = 0
+hitpoints = 40
+categories = ["human"]
+examine = "Servant of the Duke of Lumbridge."

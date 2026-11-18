@@ -1,0 +1,91 @@
+package content.area.troll_country.god_wars_dungeon
+
+import content.entity.combat.killer
+import content.skill.melee.weapon.fightStyle
+import world.gregs.voidps.engine.Script
+import world.gregs.voidps.engine.client.instruction.handle.interactNpc
+import world.gregs.voidps.engine.client.instruction.handle.interactPlayer
+import world.gregs.voidps.engine.client.message
+import world.gregs.voidps.engine.client.ui.close
+import world.gregs.voidps.engine.client.ui.open
+import world.gregs.voidps.engine.data.definition.Areas
+import world.gregs.voidps.engine.entity.character.npc.NPC
+import world.gregs.voidps.engine.entity.character.player.Player
+import world.gregs.voidps.engine.inv.equipment
+import world.gregs.voidps.type.random
+
+class GodwarsAggression : Script {
+
+    init {
+        npcSpawn(handler = ::randomHuntMode)
+
+        entered("godwars_dungeon_multi_area") {
+            open("godwars_overlay")
+            set("gods", equipment.items.mapNotNull { it.def.getOrNull<String>("god") }.toMutableSet())
+        }
+
+        exited("godwars_dungeon_multi_area") {
+            close("godwars_overlay")
+            if (get("logged_out", false)) {
+                return@exited
+            }
+            set("godwars_darkness", false)
+            clear("armadyl_killcount")
+            clear("bandos_killcount")
+            clear("saradomin_killcount")
+            clear("zamorak_killcount")
+        }
+
+        itemAdded(inventory = "worn_equipment") { (item) ->
+            val god = item.def.getOrNull<String>("god") ?: return@itemAdded
+            if (tile in Areas["godwars_dungeon_multi_area"]) {
+                get<MutableSet<String>>("gods")!!.add(god)
+            }
+        }
+
+        itemRemoved(inventory = "worn_equipment") {
+            if (tile in Areas["godwars_dungeon_multi_area"]) {
+                set("gods", equipment.items.mapNotNull { it.def.getOrNull<String>("god") }.toMutableSet())
+            }
+        }
+
+        huntPlayer(mode = "godwars_aggressive") { target ->
+            interactPlayer(target, "Attack")
+        }
+
+        huntNPC(mode = "zamorak_aggressive") { target ->
+            interactNpc(target, "Attack")
+        }
+
+        huntNPC(mode = "anti_zamorak_aggressive") { target ->
+            interactNpc(target, "Attack")
+        }
+
+        npcDeath {
+            val killer = killer
+            if (killer is NPC) {
+                randomHuntMode(this)
+            } else if (killer is Player) {
+                val god = def["god", ""]
+                if (god != "") {
+                    killer.inc("${god}_killcount")
+                }
+            }
+        }
+
+        canAttack("aviansie*,kree_arra,flight_kilisa,wingman_skree,flockleader_geerin") {
+            if (fightStyle == "melee") {
+                message("The Aviansie is flying too high for you to attack using melee.")
+                false
+            } else {
+                true
+            }
+        }
+    }
+
+    fun randomHuntMode(npc: NPC) {
+        if (npc.tile in Areas["godwars_dungeon_multi_area"] && (npc.def.huntMode == "zamorak_aggressive" || npc.def.huntMode == "anti_zamorak_aggressive")) {
+            npc.huntMode = if (random.nextBoolean()) npc.def.huntMode else "godwars_aggressive"
+        }
+    }
+}

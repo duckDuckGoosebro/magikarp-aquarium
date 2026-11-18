@@ -1,0 +1,279 @@
+package world.gregs.voidps.engine.entity.character.mode.interact
+
+import io.mockk.*
+import kotlinx.coroutines.suspendCancellableCoroutine
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.DynamicTest.dynamicTest
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.TestFactory
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
+import org.koin.core.module.Module
+import org.koin.dsl.module
+import org.rsmod.game.pathfinder.LineValidator
+import org.rsmod.game.pathfinder.PathFinder
+import org.rsmod.game.pathfinder.StepValidator
+import org.rsmod.game.pathfinder.collision.CollisionStrategies
+import world.gregs.voidps.engine.GameLoop
+import world.gregs.voidps.engine.Script
+import world.gregs.voidps.engine.client.sendScript
+import world.gregs.voidps.engine.client.ui.close
+import world.gregs.voidps.engine.data.definition.Areas
+import world.gregs.voidps.engine.entity.character.mode.EmptyMode
+import world.gregs.voidps.engine.entity.character.move.tele
+import world.gregs.voidps.engine.entity.character.npc.NPC
+import world.gregs.voidps.engine.entity.character.player.Player
+import world.gregs.voidps.engine.inv.restrict.ValidItemRestriction
+import world.gregs.voidps.engine.inv.stack.ItemDependentStack
+import world.gregs.voidps.engine.map.collision.Collisions
+import world.gregs.voidps.engine.script.KoinMock
+import world.gregs.voidps.engine.suspend.Suspension
+import world.gregs.voidps.type.Tile
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+
+internal class InteractTest : KoinMock() {
+
+    private lateinit var player: Player
+    private lateinit var target: NPC
+    private lateinit var interact: Interact
+    private var approached = false
+    private var operated = false
+
+    override val modules: List<Module> = listOf(
+        module {
+            single { LineValidator(Collisions.map) }
+            single { StepValidator(Collisions.map) }
+            single { PathFinder(Collisions.map) }
+        },
+    )
+
+    @BeforeEach
+    fun setup() {
+        for (x in 0 until 24 step 8) {
+            for (y in 0 until 24 step 8) {
+                Collisions.deallocateIfPresent(x, y, 0)
+                Collisions.allocateIfAbsent(x, y, 0)
+            }
+        }
+        mockkStatic("world.gregs.voidps.engine.client.ui.InterfacesKt")
+        mockkStatic("world.gregs.voidps.engine.client.EncodeExtensionsKt")
+        approached = false
+        operated = false
+        player = spyk(Player(tile = Tile(10, 11)))
+        player.interfaces = mockk(relaxed = true)
+        every { player.close(null) } returns true
+        every { player.sendScript(any()) } just Runs
+        every { player.interfaces.get(any()) } returns null
+        player.collision = CollisionStrategies.Normal
+        target = NPC(tile = Tile(10, 10))
+        target.collision = CollisionStrategies.Normal
+        player.inventories.normalStack = ItemDependentStack
+        player.inventories.player = player
+        player.inventories.validItemRule = ValidItemRestriction()
+        Areas.clear()
+    }
+
+    private fun interact(operate: Boolean, approach: Boolean, suspend: Boolean) {
+        interact = object : Interact(player, target) {
+            override fun hasOperate() = operate
+
+            override fun hasApproach() = approach
+
+            override fun operate() {
+                if (operate) {
+                    Script.launch {
+                        if (suspend) {
+                            suspendCancellableCoroutine {
+                                player.suspension = Suspension.Delay(it, 2)
+                            }
+                            player.suspension = null
+                        }
+                        operated = true
+                    }
+                }
+            }
+
+            override fun approach() {
+                if (approach) {
+                    Script.launch {
+                        if (suspend) {
+                            suspendCancellableCoroutine {
+                                player.suspension = Suspension.Delay(it, 2)
+                            }
+                            player.suspension = null
+                        }
+                        approached = true
+                    }
+                }
+            }
+        }
+        player.mode = interact
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = [0, 1, 2, 5])
+    fun `Operate interaction from distance`(distance: Int) {
+        player.tele(10 - distance, 10)
+        target.tele(10, 10)
+        interact(operate = true, approach = false, suspend = false)
+
+        repeat((distance - 1).coerceAtLeast(1)) {
+            assertFalse(operated)
+            interact.tick()
+        }
+
+        assertEquals(Tile(9, 10), player.tile)
+        assertTrue(operated)
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = [0, 1, 11, 12])
+    fun `Approach interacts when in distance`(distance: Int) {
+        player.tele(10 + distance, 10)
+        target.tele(10, 10)
+        interact(operate = false, approach = true, suspend = false)
+
+        assertFalse(approached)
+        repeat(2) {
+            interact.tick()
+        }
+
+        assertTrue(approached)
+    }
+
+    @Test
+    fun `Switch to operate once within approach range`() {
+        player.tele(10, 15)
+        target.tele(10, 10)
+        onApproach = {
+            approached = true
+            interact.updateRange(-1, false)
+        }
+        onOperate = { operated = true }
+        custom(operate = true, approach = true)
+
+        assertFalse(approached)
+        interact.tick()
+        assertTrue(approached)
+        repeat(3) {
+            assertFalse(operated)
+            interact.tick()
+        }
+        assertEquals(Tile(10, 11), player.tile)
+        assertTrue(operated)
+    }
+
+    @TestFactory
+    fun `Interaction waits before completion`() = listOf("suspension", "interface").map { type ->
+        dynamicTest("Interaction waits for $type") {
+            operated = false
+            interact(operate = true, approach = false, suspend = type == "suspension")
+            if (type == "delay") {
+                player.delay = 2
+            } else if (type == "interface") {
+                every { player.interfaces.get("main_screen") } returns "an_interface"
+            }
+
+            repeat(3) {
+                if (type == "interface" && it == 2) {
+                    every { player.interfaces.get("main_screen") } returns null
+                }
+                assertFalse(operated)
+                interact.tick()
+                GameLoop.tick++
+            }
+
+            assertTrue(operated)
+            assertEquals(Tile(10, 11), player.tile)
+            interact.tick()
+            assertEquals(EmptyMode, player.mode)
+        }
+    }
+
+    private var hasOperate = true
+    private var onOperate: () -> Unit = {}
+    private var onApproach: () -> Unit = {}
+
+    private fun custom(operate: Boolean = true, approach: Boolean = false) {
+        hasOperate = operate
+        interact = object : Interact(player, target) {
+            override fun hasOperate() = hasOperate
+
+            override fun hasApproach() = approach
+
+            override fun operate() = onOperate()
+
+            override fun approach() = onApproach()
+        }
+        player.mode = interact
+    }
+
+    private fun suspended(ticks: Int = 2): () -> Unit = {
+        Script.launch {
+            suspendCancellableCoroutine {
+                player.suspension = Suspension.Delay(it, ticks)
+            }
+            player.suspension = null
+            operated = true
+        }
+    }
+
+    @Test
+    fun `Launched interaction isn't re-evaluated while suspended`() {
+        onOperate = suspended()
+        custom()
+        interact.tick()
+        // e.g. the script transforms the target so the option no longer exists
+        hasOperate = false
+
+        repeat(3) {
+            GameLoop.tick++
+            interact.tick()
+        }
+
+        assertTrue(operated)
+        assertEquals(EmptyMode, player.mode)
+    }
+
+    @Test
+    fun `Suspended interaction doesn't follow its target`() {
+        player.tele(10, 15)
+        onApproach = suspended(5)
+        custom(operate = false, approach = true)
+        interact.tick()
+        val tile = player.tile
+        target.tele(10, 5)
+
+        repeat(3) {
+            GameLoop.tick++
+            interact.tick()
+        }
+
+        assertFalse(operated)
+        assertEquals(tile, player.tile)
+        assertEquals(interact, player.mode)
+    }
+
+    @Test
+    fun `Replace runs once after movement`() {
+        player.tele(10, 15)
+        var count = 0
+        var tile = Tile.EMPTY
+        onApproach = {
+            interact.replace {
+                count++
+                tile = player.tile
+            }
+        }
+        custom(operate = false, approach = true)
+
+        repeat(3) {
+            interact.tick()
+        }
+
+        assertEquals(1, count)
+        assertTrue(tile != Tile(10, 15))
+    }
+}

@@ -1,0 +1,99 @@
+package content.entity.player.effect.energy
+
+import world.gregs.voidps.engine.GameLoop
+import world.gregs.voidps.engine.Script
+import world.gregs.voidps.engine.client.sendRunEnergy
+import world.gregs.voidps.engine.client.variable.hasClock
+import world.gregs.voidps.engine.data.Settings
+import world.gregs.voidps.engine.entity.character.move.running
+import world.gregs.voidps.engine.entity.character.player.Player
+import world.gregs.voidps.engine.entity.character.player.skill.Skill
+import world.gregs.voidps.engine.entity.character.player.skill.level.Interpolation
+import world.gregs.voidps.engine.timer.Timer
+
+const val MAX_RUN_ENERGY = 10000
+
+fun Player.energyPercent() = (runEnergy / MAX_RUN_ENERGY.toDouble() * 100).toInt()
+
+var Player.runEnergy: Int
+    get() = this["energy", MAX_RUN_ENERGY]
+    set(value) {
+        this["energy"] = value.coerceIn(0, MAX_RUN_ENERGY)
+        softTimers.startIfAbsent("energy_restore")
+        sendRunEnergy(energyPercent())
+    }
+
+class Energy : Script {
+
+    init {
+        playerSpawn {
+            set("movement", "run")
+            running = true
+            if (runEnergy < MAX_RUN_ENERGY) {
+                softTimers.start("energy_restore")
+            }
+        }
+
+        moved {
+            if (visuals.runStep == -1 || get("last_energy_drain", -1) == GameLoop.tick || get("magic_carpet", false) || !energyDrain) {
+                return@moved
+            }
+            set("last_energy_drain", GameLoop.tick)
+            if (visuals.runStep != -1 && !get("god_mode", false) && !infiniteRunEnergy) {
+                runEnergy -= getDrainAmount(this)
+                walkWhenOutOfEnergy(this)
+            }
+        }
+
+        timerTick("energy_restore") {
+            if (runEnergy >= MAX_RUN_ENERGY) {
+                return@timerTick Timer.CANCEL
+            }
+            // Energy only recovers when not running; drains the tick before restores run
+            if (get("last_energy_drain", -1) == GameLoop.tick - 1) {
+                return@timerTick Timer.CONTINUE
+            }
+            runEnergy += getRestoreAmount(this)
+            // Idle Scape: auto-run comes back on once there is enough energy
+            if (!running && runEnergy >= MAX_RUN_ENERGY / 5) {
+                set("movement", "run")
+                running = true
+            }
+            return@timerTick Timer.CONTINUE
+        }
+    }
+
+    fun getRestoreAmount(player: Player): Int {
+        val agility = player.levels.get(Skill.Agility)
+        // Approximations based on wiki
+        return RESTORE_MULTIPLIER * when (player["movement", "walk"]) {
+            "rest" -> Interpolation.interpolate(agility, 168, 310, 1, 99)
+            "music" -> Interpolation.interpolate(agility, 240, 400, 1, 99)
+            else -> Interpolation.interpolate(agility, 27, 157, 1, 99)
+        }
+    }
+
+    fun getDrainAmount(player: Player): Int {
+        val weight = player["weight", 0.0].toInt().coerceIn(0, 64)
+        var decrement = 67 + ((67 * weight) / 64)
+        if (player.hasClock("hamstring")) {
+            decrement *= 4
+        }
+        return decrement / DRAIN_DIVISOR
+    }
+
+    fun walkWhenOutOfEnergy(player: Player) {
+        if (player.runEnergy == 0) {
+            player["movement"] = "walk"
+            player.running = false
+        }
+    }
+
+    private companion object {
+        /** Idle Scape: run energy regenerates 8x faster and drains 4x slower. */
+        const val RESTORE_MULTIPLIER = 8
+        const val DRAIN_DIVISOR = 4
+        val energyDrain by Settings.bool("players.energy.drain", true)
+        val infiniteRunEnergy by Settings.bool("world.players.infiniteRunEnergy", false)
+    }
+}

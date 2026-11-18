@@ -1,0 +1,321 @@
+package world.gregs.voidps.engine.entity.character.mode.move
+
+import org.rsmod.game.pathfinder.LineValidator
+import org.rsmod.game.pathfinder.PathFinder
+import org.rsmod.game.pathfinder.StepValidator
+import world.gregs.voidps.engine.GameLoop
+import world.gregs.voidps.engine.client.variable.hasClock
+import world.gregs.voidps.engine.data.Settings
+import world.gregs.voidps.engine.data.definition.Areas
+import world.gregs.voidps.engine.entity.character.Character
+import world.gregs.voidps.engine.entity.character.mode.EmptyMode
+import world.gregs.voidps.engine.entity.character.mode.Mode
+import world.gregs.voidps.engine.entity.character.mode.move.target.TargetStrategy
+import world.gregs.voidps.engine.entity.character.move.running
+import world.gregs.voidps.engine.entity.character.npc.NPC
+import world.gregs.voidps.engine.entity.character.player.Player
+import world.gregs.voidps.engine.entity.character.player.movementType
+import world.gregs.voidps.engine.entity.character.player.temporaryMoveType
+import world.gregs.voidps.engine.get
+import world.gregs.voidps.engine.map.Overlap
+import world.gregs.voidps.engine.map.collision.Collisions
+import world.gregs.voidps.engine.map.instance.Instances
+import world.gregs.voidps.network.login.protocol.visual.update.player.MoveType
+import world.gregs.voidps.type.Delta
+import world.gregs.voidps.type.Direction
+import world.gregs.voidps.type.Tile
+import world.gregs.voidps.type.equals
+import world.gregs.voidps.type.random
+import kotlin.math.sign
+
+open class Movement(
+    open val character: Character,
+    private val strategy: TargetStrategy? = null,
+    private val shape: Int? = null,
+) : Mode {
+
+    private val stepValidator: StepValidator = get()
+    private val lineValidator: LineValidator = get()
+    private val pathFinder: PathFinder = get()
+    private var needsCalculation = true
+
+    internal fun calculate() {
+        if (!needsCalculation || strategy == null) {
+            return
+        }
+        val tile = strategy.destination(character)
+        val pathfinds = Steps.smartPathing(character)
+        if (pathfinds && !tile.noCollision) {
+            val route = pathFinder.findPath(character, strategy, shape)
+            character.steps.queueRoute(route, tile, tile.noCollision, noRun = strategy.forceWalk(character))
+        } else if (tile != Tile.EMPTY) {
+            character.steps.queueStep(tile, tile.noCollision, noRun = strategy.forceWalk(character))
+        }
+        needsCalculation = false
+    }
+
+    /**
+     * Clears steps and queues a random cardinal step when an NPC overlaps its character target and isn't permitted to stand there.
+     */
+    protected open fun stepOut(): Boolean {
+        val strategy = strategy ?: return false
+        if (strategy.shape != -2) {
+            return false
+        }
+        val npc = character as? NPC ?: return false
+        if (npc.def.allowedUnder) {
+            return false
+        }
+        if (!Overlap.isUnder(npc.tile, npc.size, npc.size, strategy.tile, strategy.width, strategy.height)) {
+            return false
+        }
+        clearSteps()
+        if (!shouldQueueStepOut()) {
+            return true
+        }
+        for (direction in Direction.cardinal.shuffled(random)) {
+            if (canStep(direction.delta.x, direction.delta.y)) {
+                character.steps.queueStep(npc.tile.add(direction), noRun = strategy.forceWalk(character))
+                break
+            }
+        }
+        return true
+    }
+
+    /**
+     * Whether [stepOut] should queue a random step after clearing, or let normal recalculation handle repositioning.
+     */
+    protected open fun shouldQueueStepOut(): Boolean = true
+
+    override fun tick() {
+        val character = character
+        if (character is Player && character.viewport?.loaded == false) {
+            return
+        }
+        if (!canMove()) {
+            return
+        }
+        if (!stepOut()) {
+            calculate()
+        }
+        if (character is NPC && character.walkTrigger != null && character.suspension != null) {
+            character.walkTrigger()
+        }
+        if (step(runStep = false) && character.running) {
+            if (character.steps.isNotEmpty()) {
+                step(runStep = true)
+            } else {
+                setMovementType(run = false, end = true)
+            }
+        }
+    }
+
+    private fun canMove(): Boolean {
+        if (character.hasClock("movement_delay")) {
+            return false
+        }
+        if (character.delayed) {
+            // Inactive delays block movement unless there's a queue in action
+            return character.suspension != null || !character.queue.isEmpty() || character.steps.destination.noCollision
+        }
+        return true
+    }
+
+    /**
+     * Applies one step
+     * @return false if blocked by an obstacle or not [Character.steps] left to take
+     */
+    private fun step(runStep: Boolean): Boolean {
+        val target = getTarget()
+        if (target == null) {
+            onCompletion()
+            return false
+        }
+        if (runStep && target.noRun) {
+            return false
+        }
+        val direction = nextDirection(target)
+        if (direction == null) {
+            clearSteps()
+            return false
+        }
+        setMovementType(runStep, end = false)
+        if (runStep) {
+            character.visuals.runStep = clockwise(direction)
+        } else {
+            character.visuals.walkStep = clockwise(direction)
+        }
+        character.steps.previous = character.tile
+        move(character, direction.delta)
+        character.face(direction, false)
+        return true
+    }
+
+    internal fun clearSteps() {
+        character.steps.clear()
+        needsCalculation = false
+    }
+
+    private fun setMovementType(run: Boolean, end: Boolean) {
+        val character = character
+        if (character is Player) {
+            character.steps.last = GameLoop.tick + 1 // faster than character.start("last_movement", 1)
+            character.temporaryMoveType = if (run) MoveType.Run else MoveType.Walk
+            character.movementType = when {
+                end -> MoveType.Run
+                run -> MoveType.Run
+                else -> MoveType.Walk
+            }
+        }
+    }
+
+    /**
+     * @return the first unreached step from [Character.steps]
+     */
+    protected open fun getTarget(): Step? {
+        val target = character.steps.peek() ?: return null
+        if (character.tile.equals(target.x, target.y)) {
+            character.steps.poll()
+            recalculate()
+            return character.steps.peek()
+        }
+        return target
+    }
+
+    open fun recalculate(): Boolean {
+        val strategy = strategy ?: return false
+        val tile = strategy.destination(character)
+        if (equals(tile, character.steps.destination)) {
+            return false
+        }
+        needsCalculation = true
+        calculate()
+        return true
+    }
+
+    open fun onCompletion() {
+        if (character.mode == this) {
+            character.mode = EmptyMode
+        }
+    }
+
+    protected fun nextDirection(target: Step?): Direction? {
+        target ?: return null
+        val dx = (target.x - character.tile.x).sign
+        val dy = (target.y - character.tile.y).sign
+        val direction = Direction.of(dx, dy)
+        if (direction == Direction.NONE) {
+            return null
+        }
+        if (target.noCollision || canStep(dx, dy)) {
+            return direction
+        }
+        if (dx != 0 && canStep(dx, 0)) {
+            return direction.horizontal()
+        }
+        if (dy != 0 && canStep(0, dy)) {
+            return direction.vertical()
+        }
+        return null
+    }
+
+    fun canStep(x: Int, y: Int): Boolean = stepValidator.canTravel(character, x, y)
+
+    fun arrived(distance: Int = -1): Boolean {
+        strategy ?: return false
+        if (distance == -1) {
+            return strategy.reached(character)
+        }
+        val character = character
+        if ((character !is NPC || !character.def.allowedUnder) && Overlap.isUnder(character.tile, character.size, character.size, strategy.tile, strategy.width, strategy.height)) {
+            return false
+        }
+        val nearest = strategy.nearest(character)
+        if (!character.tile.within(nearest, distance)) {
+            return false
+        }
+        if (!strategy.requiresLineOfSight()) {
+            return true
+        }
+        return strategy.hasLineOfSight(lineValidator, character)
+    }
+
+    companion object {
+
+        /**
+         * Alternative comparator as an updated Step with no collision won't match a regular tile if using Tile.equals()
+         */
+        fun equals(one: Tile, two: Tile) = one.level == two.level && one.x == two.x && one.y == two.y
+
+        fun move(character: Character, delta: Delta) {
+            val from = character.tile
+            character.tile = character.tile.add(delta)
+            val to = character.tile
+            character.visuals.moved = true
+            if (playerCollision && !character.dead) {
+                move(character, from, to)
+            }
+            if (character is Player) {
+                Moved.player(character, from)
+                val toOriginal = character.original(to)
+                val fromOriginal = character.original(from)
+                for (def in Areas.get(fromOriginal.zone)) {
+                    if (fromOriginal in def.area && toOriginal !in def.area) {
+                        Moved.exit(character, def.name, def)
+                    }
+                }
+                for (def in Areas.get(toOriginal.zone)) {
+                    if (toOriginal in def.area && fromOriginal !in def.area) {
+                        Moved.enter(character, def.name, def)
+                    }
+                }
+            } else if (character is NPC) {
+                Moved.npc(character, from)
+            }
+        }
+
+        private val playerCollision by Settings.bool("world.players.collision", false)
+
+        private fun Player.original(tile: Tile): Tile {
+            if (!Instances.reserved(tile.region)) {
+                return tile
+            }
+            val offset: Long = get("instance_offset") ?: return tile
+            return tile.minus(Delta(offset))
+        }
+
+        private fun move(character: Character, from: Tile, to: Tile) {
+            if (from == to) {
+                return
+            }
+            val mask = character.collisionFlag
+            val size = character.size
+            if (size == 1) {
+                Collisions.move(from.x, from.y, from.level, to.x, to.y, to.level, mask)
+                return
+            }
+            for (x in 0 until size) {
+                for (y in 0 until size) {
+                    Collisions.remove(from.x + x, from.y + y, from.level, mask)
+                }
+            }
+            for (x in 0 until size) {
+                for (y in 0 until size) {
+                    Collisions.add(to.x + x, to.y + y, to.level, mask)
+                }
+            }
+        }
+
+        private fun clockwise(step: Direction) = when (step) {
+            Direction.NORTH -> 0
+            Direction.NORTH_EAST -> 1
+            Direction.EAST -> 2
+            Direction.SOUTH_EAST -> 3
+            Direction.SOUTH -> 4
+            Direction.SOUTH_WEST -> 5
+            Direction.WEST -> 6
+            Direction.NORTH_WEST -> 7
+            else -> -1
+        }
+    }
+}

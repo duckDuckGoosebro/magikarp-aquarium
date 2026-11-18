@@ -1,0 +1,82 @@
+package world.gregs.voidps.engine.entity.character.mode.move.target
+
+import org.rsmod.game.pathfinder.LineValidator
+import org.rsmod.game.pathfinder.reach.ReachStrategy
+import world.gregs.voidps.engine.entity.character.Character
+import world.gregs.voidps.engine.entity.character.mode.move.hasLineOfSight
+import world.gregs.voidps.engine.entity.character.npc.NPC
+import world.gregs.voidps.engine.entity.character.player.Player
+import world.gregs.voidps.engine.entity.character.player.equip.equipped
+import world.gregs.voidps.engine.entity.item.floor.FloorItem
+import world.gregs.voidps.engine.entity.obj.GameObject
+import world.gregs.voidps.engine.map.collision.Collisions
+import world.gregs.voidps.network.login.protocol.visual.update.player.EquipSlot
+import world.gregs.voidps.type.Distance
+import world.gregs.voidps.type.Tile
+
+interface TargetStrategy {
+    val bitMask: Int
+    val tile: Tile
+
+    /*
+        Rotated values
+     */
+    val width: Int
+    val height: Int
+
+    /*
+        Original sizes
+     */
+    val sizeX: Int
+    val sizeY: Int
+    val rotation: Int
+    val shape: Int
+
+    fun forceWalk(character: Character): Boolean = noRun(character)
+
+    fun destination(source: Character): Tile = tile
+
+    fun requiresLineOfSight(): Boolean = true
+
+    fun hasLineOfSight(validator: LineValidator, character: Character): Boolean = validator.hasLineOfSight(character, tile, width, height)
+
+    fun within(tile: Tile, range: Int): Boolean = tile.within(this.tile, range)
+
+    fun nearest(source: Character): Tile = Distance.nearest(tile, width, height, source.tile)
+
+    fun reached(character: Character): Boolean = ReachStrategy.reached(
+        flags = Collisions.map,
+        srcX = character.tile.x,
+        srcZ = character.tile.y,
+        level = character.tile.level,
+        srcSize = character.size,
+        destX = tile.x,
+        destZ = tile.y,
+        destWidth = sizeX,
+        destHeight = sizeY,
+        objRot = rotation,
+        objShape = shape,
+        blockAccessFlags = bitMask,
+    )
+
+    companion object {
+        fun noRun(character: Character) = character is Player && (character.equipped(EquipSlot.Weapon).id == "stone_bowl" || character.equipped(EquipSlot.Hat).id.contains("bedsheet"))
+
+        operator fun <T : Any> invoke(source: Character, entity: T): TargetStrategy = when (entity) {
+            is Tile -> TileTargetStrategy(entity)
+            is GameObject -> when (entity.id) {
+                "archery_target" -> TileTargetStrategy(entity.tile.addX(5))
+                "barbarian_outpost_spring" -> TileTargetStrategy(Tile(2533, 3547, 3))
+                "barbarian_outpost_run_wall" -> TileTargetStrategy(entity.tile.addY(1))
+                "gnome_obstacle_pipe_east", "gnome_obstacle_pipe_west" -> TileTargetStrategy(entity.tile.addY(-1))
+                "lumbridge_church_bell" -> TileTargetStrategy(entity.tile.addY(-1))
+                "wall_pipe" -> TileTargetStrategy(entity.tile.addY(-1))
+                "hoop_stick", "hoop_and_stick", "dartboard", "dartboard_hit", "house_archery_target", "house_archery_target_hit" -> ObjectTargetStrategy(entity, lineOfSight = true)
+                else -> ObjectTargetStrategy(entity)
+            }
+            is FloorItem -> FloorItemTargetStrategy(entity)
+            is Character -> if (source is NPC) NPCCharacterTargetStrategy(entity) else CharacterTargetStrategy(entity)
+            else -> DefaultTargetStrategy
+        }
+    }
+}

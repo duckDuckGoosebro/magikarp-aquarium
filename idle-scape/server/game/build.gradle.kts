@@ -1,0 +1,207 @@
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+
+plugins {
+    id("tasks.metadata")
+    id("shared")
+    application
+    alias(libs.plugins.shadow)
+    alias(libs.plugins.kotlinSerialization)
+}
+
+dependencies {
+    implementation(libs.kotlinx.serialization.core)
+    implementation(project(":engine"))
+    implementation(project(":cache"))
+    implementation(project(":network"))
+    implementation(project(":types"))
+    implementation(project(":config"))
+    implementation(project(":web:server"))
+    if (findProperty("includeDb") != null) {
+        implementation(project(":database"))
+    }
+    implementation(libs.fastutil)
+    implementation(libs.kasechange)
+    implementation(libs.rsmod.pathfinder)
+
+    implementation(kotlin("script-runtime"))
+    implementation(libs.bundles.kotlinx)
+
+    implementation(libs.koin)
+    implementation(libs.bundles.logging)
+
+    testImplementation(libs.bundles.testing)
+}
+
+kotlin {
+    compilerOptions {
+        // Compile lambdas to classes instead of invokedynamic so they can be preloaded in parallel on startup
+        freeCompilerArgs.addAll("-Xlambdas=class", "-Xsam-conversions=class")
+    }
+}
+
+application {
+    mainClass.set("Main")
+    tasks.run.get().workingDir = rootProject.projectDir
+}
+
+tasks {
+    processResources {
+        dependsOn("scriptMetadata")
+    }
+
+    named("build") {
+        dependsOn("scriptMetadata")
+    }
+
+    named("classes") {
+        dependsOn("scriptMetadata")
+    }
+
+    val main = sourceSets.getByName("main")
+    val preloadDirectory = layout.buildDirectory.dir("generated/preload")
+    val classPreload =
+        register("classPreload", ClassPreloadTask::class.java) {
+            classesDirs.from(main.output.classesDirs)
+            packageName = "content"
+            outputDirectory = preloadDirectory
+        }
+    main.output.dir(mapOf("builtBy" to classPreload), preloadDirectory)
+
+    register("scriptMetadata", ScriptMetadataTask::class.java) {
+        val main = sourceSets.getByName("main")
+        val resources = main.resources.srcDirs.first { it.name == "resources" }
+        inputDirectory.set(layout.projectDirectory.dir("src/main/kotlin/content"))
+        scriptsFile = resources.resolve("scripts.txt")
+        resourceDirectory = resources
+    }
+
+    named<ShadowJar>("shadowJar") {
+        dependsOn("scriptMetadata")
+        from(layout.buildDirectory.file("scripts.txt"))
+        val db = findProperty("includeDb") != null
+        // Idle Scape: keep the web client libraries intact (they are loaded by ServiceLoader at runtime)
+        mergeServiceFiles()
+        minimize {
+            exclude(dependency("io.ktor:.*"))
+            exclude(dependency("org.jetbrains.kotlinx:kotlinx-serialization-json.*:.*"))
+            exclude(dependency("org.jetbrains.kotlinx:kotlinx-serialization-core.*:.*"))
+            if (db) {
+                exclude(project(":database"))
+                exclude(dependency("org.postgresql:postgresql:.*"))
+                exclude(dependency("org.jetbrains.exposed:exposed-jdbc:.*"))
+            }
+            exclude("world/gregs/voidps/engine/log/**")
+            exclude(dependency("ch.qos.logback:logback-classic:.*"))
+        }
+        if (db) {
+            archiveBaseName.set("void-server-db-$version")
+        } else {
+            archiveBaseName.set("void-server-$version")
+        }
+        archiveClassifier.set("")
+        archiveVersion.set("")
+        // Replace logback file as the custom colour classes can't be individually excluded from minimization
+        // https://github.com/GradleUp/shadow/issues/638
+        exclude("logback.xml")
+        val resourcesDir = layout.projectDirectory.dir("src/main/resources")
+        val logback =
+            resourcesDir
+                .file("logback.xml")
+                .asFile
+                .readText()
+                .replace("%colour", "%highlight")
+                .replace("%message(%msg){}", "%msg")
+        val replacement =
+            layout.buildDirectory
+                .file("logback-test.xml")
+                .get()
+                .asFile
+        replacement.parentFile.mkdirs()
+        replacement.writeText(logback)
+        from(replacement)
+    }
+
+    register("printVersion") {
+        val version = project.version.toString()
+        doLast {
+            println(version)
+        }
+    }
+
+    register("printCacheVersion") {
+        val message = libs.versions.cacheVersion.get()
+        doLast {
+            println(message)
+        }
+    }
+
+    test {
+        jvmArgs("-XX:-OmitStackTraceInFastThrow")
+        systemProperty("net.bytebuddy.experimental", "true")
+        maxParallelForks =
+            (findProperty("testForks") as String?)?.toInt() ?: (Runtime.getRuntime().availableProcessors() / 2).coerceIn(1, 2)
+        maxHeapSize = "3g"
+    }
+}
+
+distributions {
+    create("bundle") {
+        distributionBaseName = "void"
+        contents {
+            from(tasks["shadowJar"])
+
+            val emptyDirs = setOf("cache", "saves")
+            val data =
+                parent!!
+                    .rootDir
+                    .resolve("data")
+            for (config in data.list()) {
+                if (emptyDirs.contains(config) || config == ".temp") {
+                    continue
+                }
+                if (config.contains(".")) {
+                    from("../data/$config") {
+                        into("data")
+                    }
+                } else {
+                    from("../data/$config/") {
+                        into("data/$config")
+                    }
+                }
+            }
+            for (dir in emptyDirs) {
+                val file =
+                    layout.buildDirectory
+                        .get()
+                        .dir("tmp/empty/$dir/")
+                        .asFile
+                file.mkdirs()
+            }
+            from(layout.buildDirectory.dir("tmp/empty/")) {
+                into("data")
+            }
+            val tempDir =
+                layout.buildDirectory
+                    .dir("tmp/scripts")
+                    .get()
+                    .asFile
+            tempDir.mkdirs()
+            val resourcesDir = layout.projectDirectory.dir("src/main/resources")
+            from(resourcesDir.file("game.properties"))
+            val bat = resourcesDir.file("run-server.bat").asFile
+            val tempBat = File(tempDir, "run-server.bat")
+            tempBat.writeText(bat.readText().replace("-dev.jar", "-$version.jar"))
+            from(tempBat)
+            val shell = resourcesDir.file("run-server.sh").asFile
+            val tempShell = File(tempDir, "run-server.sh")
+            tempShell.writeText(shell.readText().replace("-dev.jar", "-$version.jar"))
+            from(tempShell)
+        }
+    }
+}
+
+dependencies {
+    allprojects.filter { it.name != "tools" }.forEach {
+        jacocoAggregation(it)
+    }
+}

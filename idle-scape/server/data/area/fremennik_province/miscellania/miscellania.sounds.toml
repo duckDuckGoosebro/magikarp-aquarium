@@ -1,0 +1,14 @@
+[rabbit_attack]
+id = 700
+
+[rabbit_death]
+id = 701
+
+[rabbit_defend]
+id = 702
+
+[sea_snake_hatchling_death]
+id = 3610
+
+[sea_snake_hatchling_attack]
+id = 3609

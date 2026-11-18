@@ -1,0 +1,110 @@
+package world.gregs.voidps.cache.definition.data
+
+import kotlinx.serialization.Serializable
+import world.gregs.voidps.cache.Definition
+import world.gregs.voidps.cache.definition.Parameterized
+import world.gregs.voidps.cache.definition.Transforms
+import world.gregs.voidps.cache.serialization.NullableStringArraySerializer
+import world.gregs.voidps.cache.serialization.ParamsSerializer
+
+@Serializable
+data class NPCDefinition(
+    override var id: Int = -1,
+    var name: String = "null",
+    var size: Int = 1,
+    @Serializable(with = NullableStringArraySerializer::class)
+    var options: Array<String?> = arrayOf(null, null, null, null, null, "Examine"),
+    var combat: Int = -1,
+    override var varbit: Int = -1,
+    override var varp: Int = -1,
+    override var transforms: IntArray? = null,
+    var walkMode: Byte = 0,
+    var renderEmote: Int = -1,
+    var idleSound: Int = -1,
+    var crawlSound: Int = -1,
+    var walkSound: Int = -1,
+    var runSound: Int = -1,
+    var soundDistance: Int = 0,
+    override var stringId: String = "",
+    @Serializable(with = ParamsSerializer::class)
+    override var params: Map<Int, Any>? = null,
+    // Fields below here are custom params here for performance reasons
+    var allowedUnder: Boolean = false, // Custom
+    var solid: Boolean = true, // Custom
+    var blocksPlayers: Boolean = false, // Custom
+    var huntRange: Int = 5, // Custom
+    var huntMode: String? = null, // Custom
+    var regenRate: Int = 25, // Custom
+    var hitpoints: Int = 10, // Custom
+) : Definition,
+    Transforms,
+    Parameterized {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+
+        other as NPCDefinition
+
+        if (id != other.id) return false
+        if (name != other.name) return false
+        if (size != other.size) return false
+        if (!options.contentEquals(other.options)) return false
+        if (combat != other.combat) return false
+        if (varbit != other.varbit) return false
+        if (varp != other.varp) return false
+        if (transforms != null) {
+            if (other.transforms == null) return false
+            if (!transforms.contentEquals(other.transforms)) return false
+        } else if (other.transforms != null) {
+            return false
+        }
+        if (walkMode != other.walkMode) return false
+        if (renderEmote != other.renderEmote) return false
+        if (idleSound != other.idleSound) return false
+        if (crawlSound != other.crawlSound) return false
+        if (walkSound != other.walkSound) return false
+        if (runSound != other.runSound) return false
+        if (soundDistance != other.soundDistance) return false
+        if (stringId != other.stringId) return false
+        if (allowedUnder != other.allowedUnder) return false
+        if (solid != other.solid) return false
+        if (blocksPlayers != other.blocksPlayers) return false
+        if (huntRange != other.huntRange) return false
+        if (huntMode != other.huntMode) return false
+        if (regenRate != other.regenRate) return false
+        if (hitpoints != other.hitpoints) return false
+        return params == other.params
+    }
+
+    override fun hashCode(): Int {
+        var result = id
+        result = 31 * result + name.hashCode()
+        result = 31 * result + size
+        result = 31 * result + options.contentHashCode()
+        result = 31 * result + combat
+        result = 31 * result + varbit
+        result = 31 * result + varp
+        result = 31 * result + (transforms?.contentHashCode() ?: 0)
+        result = 31 * result + walkMode
+        result = 31 * result + renderEmote
+        result = 31 * result + idleSound
+        result = 31 * result + crawlSound
+        result = 31 * result + walkSound
+        result = 31 * result + runSound
+        result = 31 * result + soundDistance
+        result = 31 * result + stringId.hashCode()
+        result = 31 * result + (params?.hashCode() ?: 0)
+        result = 31 * result + allowedUnder.hashCode()
+        result = 31 * result + solid.hashCode()
+        result = 31 * result + blocksPlayers.hashCode()
+        result = 31 * result + huntRange.hashCode()
+        result = 31 * result + huntMode.hashCode()
+        result = 31 * result + regenRate.hashCode()
+        result = 31 * result + hitpoints.hashCode()
+        return result
+    }
+
+    companion object {
+        val EMPTY = NPCDefinition()
+    }
+}

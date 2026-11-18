@@ -1,0 +1,203 @@
+package world.gregs.voidps.engine.data
+
+import io.mockk.coVerify
+import io.mockk.mockk
+import io.mockk.mockkStatic
+import io.mockk.verify
+import kotlinx.coroutines.test.runTest
+import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assertions.*
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
+import org.koin.dsl.module
+import world.gregs.voidps.cache.config.data.InventoryDefinition
+import world.gregs.voidps.engine.GameLoop
+import world.gregs.voidps.engine.client.ui.Interfaces
+import world.gregs.voidps.engine.client.variable.BooleanValues
+import world.gregs.voidps.engine.client.variable.StringValues
+import world.gregs.voidps.engine.data.config.AccountDefinition
+import world.gregs.voidps.engine.data.config.VariableDefinition
+import world.gregs.voidps.engine.data.definition.*
+import world.gregs.voidps.engine.data.exchange.Claim
+import world.gregs.voidps.engine.data.exchange.OpenOffers
+import world.gregs.voidps.engine.data.exchange.PriceHistory
+import world.gregs.voidps.engine.entity.World
+import world.gregs.voidps.engine.entity.character.player.Player
+import world.gregs.voidps.engine.entity.character.player.chat.clan.Clan
+import world.gregs.voidps.engine.entity.character.player.equip.AppearanceOverrides
+import world.gregs.voidps.engine.script.KoinMock
+import world.gregs.voidps.network.client.Client
+import world.gregs.voidps.network.client.ConnectionQueue
+import world.gregs.voidps.network.client.DummyClient
+import world.gregs.voidps.network.login.protocol.encode.logout
+import world.gregs.voidps.type.Tile
+import world.gregs.voidps.type.area.Rectangle
+
+class AccountManagerTest : KoinMock() {
+
+    private lateinit var manager: AccountManager
+    private lateinit var accountDefinitions: AccountDefinitions
+    private lateinit var connectionQueue: ConnectionQueue
+    private lateinit var saveQueue: SaveQueue
+
+    override val modules = listOf(
+        module {
+            single { ItemDefinitions.init(emptyArray()) }
+        },
+    )
+
+    @BeforeEach
+    fun setup() {
+        InterfaceDefinitions.clear()
+        Areas.set(emptyMap(), emptyMap(), mapOf(0 to setOf(AreaDefinition("area", Rectangle(Tile(0), 1, 1), emptySet()))))
+        val inventoryDefinitions = InventoryDefinitions.set(arrayOf(InventoryDefinition.EMPTY), mapOf("worn_equipment" to 0))
+        connectionQueue = ConnectionQueue(1)
+        val storage = object : Storage {
+            override fun names(): Map<String, AccountDefinition> = emptyMap()
+
+            override fun clans(): Map<String, Clan> = emptyMap()
+
+            override fun offers(days: Int): OpenOffers = OpenOffers()
+
+            override fun saveOffers(offers: OpenOffers) {
+            }
+
+            override fun claims(): Map<Int, Claim> = emptyMap()
+
+            override fun saveClaims(claims: Map<Int, Claim>) {
+            }
+
+            override fun priceHistory(): Map<String, PriceHistory> = emptyMap()
+
+            override fun savePriceHistory(history: Map<String, PriceHistory>) {
+            }
+
+            override fun save(accounts: List<PlayerSave>) {
+            }
+
+            override fun saveReport(report: AbuseReport) {
+            }
+
+            override fun create(account: PlayerSave): Boolean = false
+
+            override fun exists(accountName: String): Boolean = false
+
+            override fun load(accountName: String): PlayerSave? = null
+
+            override fun accounts(): List<PlayerSave> = emptyList()
+        }
+        Settings.load(mapOf("world.home.x" to "1234", "world.home.y" to "5432", "world.experienceRate" to "1.0"))
+        saveQueue = SaveQueue(storage)
+        accountDefinitions = AccountDefinitions()
+        VariableDefinitions.set(
+            mapOf(
+                "display_name" to VariableDefinition.CustomVariableDefinition(StringValues, null, persistent = true),
+                "choose_name" to VariableDefinition.CustomVariableDefinition(BooleanValues, null, persistent = true),
+            ),
+        )
+        manager = AccountManager(
+            accountDefinitions = accountDefinitions,
+            saveQueue = saveQueue,
+            connectionQueue = connectionQueue,
+            overrides = AppearanceOverrides(),
+        )
+    }
+
+    @Test
+    fun `Create a new player`() {
+        val player = manager.create("name", "hash")
+        assertTrue(player["new_player", false])
+        assertEquals(Tile(1234, 5432), player.tile)
+    }
+
+    @Test
+    fun `Email accounts get a display name from the email`() {
+        val player = manager.create("bob.smith@example.com", "hash")
+        assertEquals("Bob smith", player["display_name", ""])
+        assertTrue(player["choose_name", false])
+    }
+
+    @Test
+    fun `Email display name is numbered when taken`() {
+        accountDefinitions.merge(mapOf("other" to AccountDefinition("other", "Bob", "", "hash")), emptyMap()) { false }
+        val player = manager.create("bob@example.com", "hash")
+        assertEquals("Bob2", player["display_name", ""])
+    }
+
+    @Test
+    fun `Explicit display name replaces the email placeholder`() {
+        val player = manager.create("bob@example.com", "hash", displayName = "Bobcat")
+        assertEquals("Bobcat", player["display_name", ""])
+        assertFalse(player.contains("choose_name"))
+    }
+
+    @Test
+    fun `Username accounts keep their name`() {
+        val player = manager.create("bob", "hash")
+        assertFalse(player.contains("display_name"))
+        assertFalse(player.contains("choose_name"))
+    }
+
+    @Test
+    fun `Initialise player`() {
+        val player = Player(0)
+        manager.setup(player, DummyClient(), 0, false)
+        assertNotNull(player.visuals)
+        assertNotNull(player.interfaces)
+        assertNotNull(player.interfaceOptions)
+        assertNotNull(player.options)
+        assertNotNull(player.collision)
+    }
+
+    @Test
+    fun `Spawn player`() {
+        val player = Player(0)
+        player.interfaces = Interfaces(player)
+        val client: Client = mockk(relaxed = true)
+        manager.spawn(player, client)
+        verify {
+            client.onDisconnecting(any())
+        }
+    }
+
+    @Test
+    fun `Despawn player`() = runTest {
+        mockkStatic("world.gregs.voidps.network.login.protocol.encode.LogoutEncoderKt")
+        val client: Client = mockk(relaxed = true)
+        val player = Player(0)
+        player.client = client
+
+        manager.logout(player, true)
+        connectionQueue.run()
+        GameLoop.tick = 2
+        World.run()
+
+        coVerify {
+            client.logout()
+            client.disconnect()
+        }
+    }
+
+    @Test
+    fun `Dropped connection still saves the session`() = runTest {
+        val client = DummyClient()
+        val player = Player(accountName = "name", tile = Tile(3200, 3200))
+        manager.setup(player, client, 0, viewport = false)
+        manager.index(player)
+        manager.spawn(player, client)
+
+        client.disconnect()
+        client.exit()
+        connectionQueue.run()
+        GameLoop.tick = 2
+        World.run()
+
+        assertTrue(saveQueue.saving("name"), "Dropped connection never queued a save, losing the session")
+        assertTrue(player["logged_out", false], "Dropped connection left the player logged in as a ghost")
+    }
+
+    @AfterEach
+    fun teardown() {
+        Settings.clear()
+    }
+}

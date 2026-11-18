@@ -1,0 +1,11 @@
+[duck_attack_walk]
+id = 6817
+
+[duck_defend_walk]
+id = 1014
+
+[duck_death_walk]
+id = 750
+
+[duck_death_swim]
+id = 3468

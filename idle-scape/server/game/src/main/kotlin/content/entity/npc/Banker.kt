@@ -1,0 +1,93 @@
+package content.entity.npc
+
+import content.area.misthalin.tutorial_island.advanceTutorial
+import content.entity.player.bank.pin.openBank
+import content.entity.player.bank.pin.openCollection
+import content.entity.player.dialogue.Neutral
+import content.entity.player.dialogue.Quiz
+import content.entity.player.dialogue.type.choice
+import content.entity.player.dialogue.type.npc
+import content.social.trade.lend.Loan.getSecondsRemaining
+import world.gregs.voidps.engine.Script
+import world.gregs.voidps.engine.client.ui.dialogue.talkWith
+import world.gregs.voidps.engine.client.ui.open
+import world.gregs.voidps.engine.data.Settings
+import world.gregs.voidps.engine.entity.character.npc.NPCs
+import world.gregs.voidps.engine.entity.character.player.Player
+
+class Banker : Script {
+
+    init {
+        npcApproach("Talk-to", "banker*,fremennik_banker,sirsal_banker,cornelius_2_2") { (target) ->
+            approachRange(2)
+            if (target.id == "banker_tutorial_island") {
+                advanceTutorial(52)
+            }
+            npc<Quiz>("Good day. How may I help you?")
+            val loanReturned = getSecondsRemaining(this, "lend_timeout") < 0
+            val collection = false
+
+            if (loanReturned) {
+                npc<Neutral>("Before we go any further, I should inform you that an item you lent out has been returned to you.")
+            } else if (collection) {
+                npc<Neutral>("Before we go any further, I should inform you that you have items ready for collection from the Grand Exchange.")
+            }
+            menu()
+        }
+
+        objectOperate("Use", "bank_chest_*") {
+            openBank()
+        }
+
+        objectOperate("Bank", "bank_chest_*") {
+            openBank()
+        }
+
+        objectOperate("Use", "bank_booth_*", arrive = false) { (target) ->
+            val banker = NPCs.at(target.tile.regionLevel)
+                .filter { it.def.name.contains("banker", ignoreCase = true) }
+                .minByOrNull { it.tile.distanceTo(target.tile) } ?: NPCs.first { it.def.name == "Banker" }
+            talkWith(banker)
+            menu()
+        }
+
+        npcApproach("Bank", "banker*,fremennik_banker,sirsal_banker,birds_eye_jack_2_2") {
+            approachRange(2)
+            openBank()
+        }
+
+        npcApproach("Collect", "banker*,fremennik_banker,sirsal_banker,birds_eye_jack_2_2") {
+            approachRange(2)
+            openCollection()
+        }
+    }
+
+    suspend fun Player.menu() {
+        choice {
+            option("I'd like to access my bank account, please.", block = { openBank() })
+            option("I'd like to check my PIN settings.", block = { open("bank_pin_settings") })
+            option("I'd like to see my collection box.", block = { openCollection() })
+            option("I'd like to see my Returned Items box.", block = { open("returned_items") })
+            option("What is this place?") {
+                npc<Neutral>("This is a branch of the Bank of ${Settings["server.name"]}. We have branches in many towns.")
+                choice {
+                    option("And what do you do?") {
+                        npc<Neutral>("We will look after your items and money for you. Leave your valuables with us if you want to keep them safe.")
+                        achievement()
+                    }
+                    option("Didn't you used to be called the Bank of Varrock?") {
+                        npc<Neutral>("Yes we did, but people kept on coming into our branches outside of Varrock and telling us that our signs were wrong. They acted as if we didn't know what town we were in or something.")
+                        achievement()
+                    }
+                }
+            }
+        }
+    }
+
+    fun Player.achievement() {
+        if (!get("you_can_bank_on_us_task", false)) {
+            set("you_can_bank_on_us_task", true)
+            addVarbit("task_reward_items", "red_dye")
+        }
+    }
+}

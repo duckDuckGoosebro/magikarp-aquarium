@@ -1,0 +1,416 @@
+package world.gregs.voidps.engine.data.file
+
+import com.github.michaelbull.logging.InlineLogger
+import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap
+import world.gregs.config.*
+import world.gregs.voidps.engine.data.AbuseReport
+import world.gregs.voidps.engine.data.PlayerSave
+import world.gregs.voidps.engine.data.Settings
+import world.gregs.voidps.engine.data.Storage
+import world.gregs.voidps.engine.data.config.AccountDefinition
+import world.gregs.voidps.engine.data.exchange.*
+import world.gregs.voidps.engine.entity.character.player.chat.clan.Clan
+import world.gregs.voidps.engine.entity.character.player.chat.clan.ClanRank
+import java.io.File
+import java.io.Writer
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.util.*
+
+class FileStorage(
+    private val directory: File,
+) : Storage {
+
+    private val logger = InlineLogger()
+
+    override fun names(): Map<String, AccountDefinition> {
+        val files = directory.listFiles { _, b -> b.endsWith(".toml") } ?: return emptyMap()
+        val definitions: MutableMap<String, AccountDefinition> = Object2ObjectOpenHashMap()
+        for (save in files) {
+            try {
+                val data = PlayerSave.load(save)
+                val variables = data.variables
+                val accountName = data.name
+                val displayName = variables.getOrDefault("display_name", accountName) as String
+                definitions[accountName.lowercase()] = AccountDefinition(
+                    accountName = accountName,
+                    displayName = displayName,
+                    previousName = (variables.getOrDefault("name_history", emptyList<String>()) as List<String>).lastOrNull() ?: "",
+                    passwordHash = data.password,
+                )
+            } catch (e: Exception) {
+                logger.warn(e) { "Failed to load account file ${save.name}, skipping." }
+            }
+        }
+        return definitions
+    }
+
+    override fun clans(): Map<String, Clan> {
+        val files = directory.listFiles { _, b -> b.endsWith(".toml") } ?: return emptyMap()
+        val clans: MutableMap<String, Clan> = Object2ObjectOpenHashMap()
+        for (save in files) {
+            try {
+                val data = PlayerSave.load(save)
+                val variables = data.variables
+                val accountName = data.name
+                val displayName = variables.getOrDefault("display_name", accountName) as String
+                clans[accountName.lowercase()] = Clan(
+                    owner = accountName,
+                    ownerDisplayName = displayName,
+                    name = variables.getOrDefault("clan_name", "") as String,
+                    friends = data.friends,
+                    ignores = data.ignores,
+                    joinRank = ClanRank.valueOf(variables.getOrDefault("clan_join_rank", "Anyone") as String),
+                    talkRank = ClanRank.valueOf(variables.getOrDefault("clan_talk_rank", "Anyone") as String),
+                    kickRank = ClanRank.valueOf(variables.getOrDefault("clan_kick_rank", "Corporeal") as String),
+                    lootRank = ClanRank.valueOf(variables.getOrDefault("clan_loot_rank", "None") as String),
+                    coinShare = variables.getOrDefault("coin_share_setting", false) as Boolean,
+                )
+            } catch (e: Exception) {
+                logger.warn(e) { "Failed to load clan from account file ${save.name}, skipping." }
+            }
+        }
+        return clans
+    }
+
+    override fun offers(days: Int): OpenOffers {
+        val offers = OpenOffers()
+        val buy = directory.resolve(Settings["storage.grand.exchange.offers.buy.path"])
+        recover(buy)
+        if (buy.exists()) {
+            loadOffers(buy, offers, false)
+        }
+        val sell = directory.resolve(Settings["storage.grand.exchange.offers.sell.path"])
+        recover(sell)
+        if (sell.exists()) {
+            loadOffers(sell, offers, true)
+        }
+        val file = directory.resolve(Settings["storage.grand.exchange.offers.path"])
+        if (file.exists()) {
+            Config.fileReader(file) {
+                check(key() == "counter") { "Expected 'counter' in grand exchange offers file." }
+                offers.counter = int()
+            }
+        }
+        offers.removeInactive(days)
+        return offers
+    }
+
+    override fun saveReport(report: AbuseReport) {
+        val parent = directory.resolve(Settings["storage.reports.path", "reports/"])
+        parent.mkdirs()
+        val file = parent.resolve("${report.time}-${report.reporter}.toml")
+        Config.fileWriter(file) {
+            writePair("reporter", report.reporter)
+            writePair("reported", report.reported)
+            writePair("rule", report.rule)
+            writePair("rule_name", report.ruleName)
+            writePair("mute", report.mute)
+            writePair("suggestion", report.suggestion)
+            writePair("time", report.time)
+            writePair("evidence", report.evidence)
+        }
+    }
+
+    override fun saveOffers(offers: OpenOffers) {
+        val buy = directory.resolve(Settings["storage.grand.exchange.offers.buy.path"])
+        val sell = directory.resolve(Settings["storage.grand.exchange.offers.sell.path"])
+        val buyStaged = stage(buy) { saveOffers(it, offers.buyByItem) }
+        val sellStaged = stage(sell) { saveOffers(it, offers.sellByItem) }
+        val file = directory.resolve(Settings["storage.grand.exchange.offers.path"])
+        file.absoluteFile.parentFile.mkdirs()
+        Config.atomicFileWriter(file) {
+            writePair("counter", offers.counter)
+        }
+        swap(buyStaged, buy)
+        swap(sellStaged, sell)
+    }
+
+    /**
+     * Writes a new copy of [target] into a temporary sibling directory.
+     */
+    private fun stage(target: File, write: (File) -> Unit): File {
+        val staged = File(target.absoluteFile.parentFile, "${target.name}.tmp")
+        staged.deleteRecursively()
+        staged.mkdirs()
+        write(staged)
+        return staged
+    }
+
+    /**
+     * Replaces [target] with [staged]. The previous directory is kept as a backup until the swap completes
+     * so [recover] can restore it if the process dies in between.
+     */
+    private fun swap(staged: File, target: File) {
+        val backup = File(target.absoluteFile.parentFile, "${target.name}.old")
+        backup.deleteRecursively()
+        if (target.exists()) {
+            Files.move(target.toPath(), backup.toPath())
+        }
+        Files.move(staged.toPath(), target.toPath())
+        backup.deleteRecursively()
+    }
+
+    /**
+     * Restores a directory whose swap was interrupted after the old copy was moved aside.
+     */
+    private fun recover(target: File) {
+        val backup = File(target.absoluteFile.parentFile, "${target.name}.old")
+        if (!target.exists() && backup.exists()) {
+            Files.move(backup.toPath(), target.toPath())
+        }
+    }
+
+    private fun saveOffers(directory: File, byItem: Map<String, TreeMap<Int, MutableList<OpenOffer>>>) {
+        for ((item, map) in byItem) {
+            val file = directory.resolve("$item.toml")
+            Config.fileWriter(file) {
+                for ((price, list) in map) {
+                    for (offer in list) {
+                        writeSection(offer.id.toString())
+                        writePair("price", price)
+                        writePair("remaining", offer.remaining)
+                        writePair("coins", offer.coins)
+                        writePair("account", offer.account)
+                        writePair("last_active", offer.lastActive)
+                        write("\n")
+                    }
+                }
+            }
+        }
+    }
+
+    private fun loadOffers(directory: File, offers: OpenOffers, sell: Boolean) {
+        val files = directory.listFiles { _, name -> name.endsWith(".toml") } ?: return
+        val map = if (sell) offers.sellByItem else offers.buyByItem
+        for (file in files) {
+            val tree = TreeMap<Int, MutableList<OpenOffer>>()
+            val item = file.nameWithoutExtension
+            Config.fileReader(file) {
+                while (nextSection()) {
+                    val id = section().toInt()
+                    val (offer, price) = readOffer(id)
+                    offers.add(id, item, price, sell, offer.lastActive)
+                    tree.getOrPut(price) { mutableListOf() }.add(offer)
+                }
+            }
+            if (tree.isNotEmpty()) {
+                map[item] = tree
+            }
+        }
+    }
+
+    private fun ConfigReader.readOffer(id: Int): Pair<OpenOffer, Int> {
+        var lastActive: Long = System.currentTimeMillis()
+        var remaining = 0
+        var coins = 0
+        var price = 0
+        var account = ""
+        while (nextPair()) {
+            when (val key = key()) {
+                "last_active" -> lastActive = long()
+                "remaining" -> remaining = int()
+                "coins" -> coins = int()
+                "account" -> account = string()
+                "price" -> price = int()
+                else -> throw IllegalArgumentException("Unexpected key: '$key' ${exception()}")
+            }
+        }
+        return OpenOffer(
+            id = id,
+            remaining = remaining,
+            coins = coins,
+            lastActive = lastActive,
+            account = account,
+        ) to price
+    }
+
+    override fun claims(): Map<Int, Claim> {
+        val file = directory.resolve(Settings["storage.grand.exchange.offers.claim.path"])
+        if (!file.exists()) {
+            return emptyMap()
+        }
+        val claims = mutableMapOf<Int, Claim>()
+        Config.fileReader(file) {
+            while (nextPair()) {
+                val id = key().toInt()
+                check(nextElement()) { "Missing claim amount for $id." }
+                val amount = int()
+                check(nextElement()) { "Missing claim price for $id." }
+                val coins = int()
+                check(!nextElement()) { "Unexpected extra claim value for $id." }
+                claims[id] = Claim(amount = amount, price = coins)
+            }
+        }
+        return claims
+    }
+
+    override fun saveClaims(claims: Map<Int, Claim>) {
+        val file = directory.resolve(Settings["storage.grand.exchange.offers.claim.path"])
+        file.parentFile.mkdirs()
+        Config.atomicFileWriter(file) {
+            for ((id, claim) in claims) {
+                writeKey(id.toString())
+                list(2) { index ->
+                    when (index) {
+                        0 -> writeValue(claim.amount)
+                        1 -> writeValue(claim.price)
+                    }
+                }
+                write("\n")
+            }
+        }
+    }
+
+    override fun priceHistory(): Map<String, PriceHistory> {
+        val directory = directory.resolve(Settings["storage.grand.exchange.history.path"])
+        val history = mutableMapOf<String, PriceHistory>()
+        for (file in directory.listFiles { it.isFile } ?: return emptyMap()) {
+            Config.fileReader(file) {
+                val priceHistory = PriceHistory()
+                while (nextSection()) {
+                    val section = section()
+                    val aggregates: MutableMap<Long, Aggregate> = when (section) {
+                        "day" -> priceHistory.day
+                        "week" -> priceHistory.week
+                        "month" -> priceHistory.month
+                        "year" -> priceHistory.year
+                        else -> continue
+                    }
+                    while (nextPair()) {
+                        val timestamp = key().toLong()
+                        aggregates[timestamp] = readAggregate()
+                    }
+                }
+                history[file.nameWithoutExtension] = priceHistory
+            }
+        }
+        return history
+    }
+
+    private fun ConfigReader.readAggregate(): Aggregate {
+        var open = 0
+        var high = 0
+        var low = Int.MAX_VALUE
+        var close = 0
+        var volume = 0L
+        var count = 0
+        var averageHigh = 0.0
+        var averageLow = 0.0
+        var volumeHigh = 0L
+        var volumeLow = 0L
+        var index = 0
+        while (nextElement()) {
+            when (index++) {
+                0 -> open = int()
+                1 -> high = int()
+                2 -> low = int()
+                3 -> close = int()
+                4 -> volume = long()
+                5 -> count = int()
+                6 -> averageHigh = double()
+                7 -> averageLow = double()
+                8 -> volumeHigh = long()
+                9 -> volumeLow = long()
+            }
+        }
+        return Aggregate(
+            open = open,
+            high = high,
+            low = low,
+            close = close,
+            volume = volume,
+            count = count,
+            averageHigh = averageHigh,
+            averageLow = averageLow,
+            volumeHigh = volumeHigh,
+            volumeLow = volumeLow,
+        )
+    }
+
+    override fun savePriceHistory(history: Map<String, PriceHistory>) {
+        directory.resolve(Settings["storage.grand.exchange.history.path"]).mkdirs()
+        for ((key, value) in history) {
+            Config.fileWriter(directory.resolve("${Settings["storage.grand.exchange.history.path"]}/$key.toml")) {
+                val configWriter: Writer = this
+                writeSection("day")
+                writeMap(configWriter, value.day)
+                writeSection("week")
+                writeMap(configWriter, value.week)
+                writeSection("month")
+                writeMap(configWriter, value.month)
+                writeSection("year")
+                writeMap(configWriter, value.year)
+            }
+        }
+    }
+
+    private fun writeMap(writer: Writer, history: MutableMap<Long, Aggregate>) {
+        for ((timestamp, aggregate) in history) {
+            writer.writeKey(timestamp.toString())
+            writer.list(10) { index ->
+                when (index) {
+                    0 -> writeValue(aggregate.open)
+                    1 -> writeValue(aggregate.high)
+                    2 -> writeValue(aggregate.low)
+                    3 -> writeValue(aggregate.close)
+                    4 -> writeValue(aggregate.volume)
+                    5 -> writeValue(aggregate.count)
+                    6 -> writeValue(aggregate.averageHigh)
+                    7 -> writeValue(aggregate.averageLow)
+                    8 -> writeValue(aggregate.volumeHigh)
+                    9 -> writeValue(aggregate.volumeLow)
+                }
+            }
+            writer.write("\n")
+        }
+    }
+
+    override fun exists(accountName: String): Boolean = directory.resolve("${accountName.lowercase()}.toml").exists()
+
+    override fun create(account: PlayerSave): Boolean {
+        directory.mkdirs()
+        val file = directory.resolve("${account.name.lowercase()}.toml")
+        if (!file.createNewFile()) {
+            return false
+        }
+        val temp = directory.resolve("${account.name.lowercase()}.toml.tmp")
+        try {
+            account.save(temp)
+            Files.move(temp.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+        } catch (e: Exception) {
+            file.delete()
+            throw e
+        } finally {
+            temp.delete()
+        }
+        return true
+    }
+
+    override fun save(accounts: List<PlayerSave>) {
+        for (account in accounts) {
+            val file = directory.resolve("${account.name.lowercase()}.toml")
+            account.save(file)
+        }
+    }
+
+    override fun load(accountName: String): PlayerSave? {
+        val file = directory.resolve("${accountName.lowercase()}.toml")
+        if (!file.exists()) {
+            return null
+        }
+        return PlayerSave.load(file)
+    }
+
+    override fun accounts(): List<PlayerSave> {
+        val files = directory.listFiles { _, name -> name.endsWith(".toml") } ?: return emptyList()
+        return files.mapNotNull { file ->
+            try {
+                PlayerSave.load(file)
+            } catch (e: Exception) {
+                logger.warn(e) { "Failed to load account file ${file.name}, skipping." }
+                null
+            }
+        }
+    }
+}

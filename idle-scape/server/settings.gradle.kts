@@ -1,0 +1,32 @@
+dependencyResolutionManagement {
+    @Suppress("UnstableApiUsage")
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+plugins {
+    id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
+}
+
+rootProject.name = "void"
+
+include("game")
+include("cache")
+include("engine")
+include("tools")
+include("tools:app")
+include("tools:icon")
+include("tools:render")
+include("tools:avatar")
+include("tools:model")
+include("buffer")
+include("network")
+include("types")
+include("config")
+include("database")
+include("web")
+include("web:site")
+include("web:server")
+includeBuild("build-logic")

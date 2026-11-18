@@ -1,0 +1,7 @@
+[head_thief]
+death_anim = "head_thief_death"
+
+[head_thief.melee]
+range = 1
+target_hit = { offense = "slash", max = 30 }
+anim = "head_thief_attack"

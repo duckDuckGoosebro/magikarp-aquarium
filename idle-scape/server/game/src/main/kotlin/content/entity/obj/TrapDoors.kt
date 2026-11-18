@@ -1,0 +1,29 @@
+package content.entity.obj
+
+import content.entity.obj.door.Door.closed
+import content.entity.obj.door.Door.opened
+import world.gregs.voidps.engine.Script
+import world.gregs.voidps.engine.entity.obj.replace
+import world.gregs.voidps.engine.timer.toTicks
+import java.util.concurrent.TimeUnit
+
+class TrapDoors : Script {
+
+    init {
+        objectOperate("Open", "trapdoor_*_closed") { (target) ->
+            anim("open_chest")
+            if (target.def.transforms != null) {
+                return@objectOperate
+            }
+            target.replace(target.def.opened, ticks = TimeUnit.MINUTES.toTicks(3))
+        }
+
+        objectOperate("Close", "trapdoor_*_opened") { (target) ->
+            anim("close_chest")
+            if (target.def.transforms != null) {
+                return@objectOperate
+            }
+            target.replace(target.def.closed, ticks = TimeUnit.MINUTES.toTicks(3))
+        }
+    }
+}
