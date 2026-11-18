@@ -34,3 +34,8 @@ SPRITE SOURCES (personal use only; Nintendo / Game Freak art)
   Tiles + buildings: sprites/gba_firered (pret/pokefirered tilesets, attributes and layouts)
   Player: sprites/trainers_walking/emerald (pret/pokeemerald)
   Pokemon: sprites/trainers_walking/followers_baptiste (GBA-style follower sheets)
+
+POKEMON ESSENTIALS (downloaded)
+  pokemon-essentials/   github.com/Maruno17/pokemon-essentials (shallow clone, ~61 MB). An RPG Maker XP kit (Ruby + Windows .exe) -
+  it does not run in the browser game. Useful parts: PBS/*.txt = Pokemon stats, moves, types, abilities, items, encounters, trainers.
+  Not copied to GitHub Pages. Update with:  git -C "POKE LAB/pokemon-essentials" pull

@@ -10,7 +10,7 @@ const SIDE = {up: 'n', down: 's', left: 'w', right: 'e'};
 const IMG = {};
 function img(src) {
   if (IMG[src]) return IMG[src];
-  const im = new Image(); im.src = src + '?v=9'; im.ready = false;
+  const im = new Image(); im.src = src + '?v=10'; im.ready = false;
   im.onload = () => { im.ready = true; }; IMG[src] = im; return im;
 }
 const whenReady = list => Promise.all(list.map(im => im.ready ? 1 : new Promise(r => { im.addEventListener('load', r); im.addEventListener('error', r); if (im.complete && im.naturalWidth) { im.ready = true; r(); } })));
@@ -139,7 +139,7 @@ function toggleMap() {
   if (w.style.display === 'flex') { w.style.display = 'none'; return; }
   w.style.display = 'flex'; drawWorldMap(); held.length = 0;
 }
-const OVIMG = new Image(); OVIMG.src = 'assets/overview.png?v=9';
+const OVIMG = new Image(); OVIMG.src = 'assets/overview.png?v=10';
 function drawWorldMap() {
   const c = $('wmc'), g = c.getContext('2d'), O = WORLD.overview;
   c.width = O.w; c.height = O.h; g.imageSmoothingEnabled = false;
