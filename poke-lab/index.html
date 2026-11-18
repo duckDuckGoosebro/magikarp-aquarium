@@ -23,8 +23,9 @@
   #pad button, .gb { position: absolute; width: 56px; height: 56px; border-radius: 12px; border: 3px solid #fff9; background: #0007; color: #fff; font: 16px var(--font); touch-action: none; padding: 0; }
   #pad .u { left: 56px; top: 0 } #pad .d { left: 56px; top: 112px } #pad .l { left: 0; top: 56px } #pad .r { left: 112px; top: 56px }
   #abtn { right: 18px; bottom: 56px; width: 70px; height: 70px; border-radius: 50%; position: fixed; display: none; z-index: 4; }
+  #pbtn { right: 98px; bottom: 140px; width: 70px; height: 40px; border-radius: 10px; font-size: 10px; position: fixed; display: none; z-index: 4; }
   #mbtn { right: 18px; bottom: 140px; width: 70px; height: 40px; border-radius: 10px; font-size: 10px; position: fixed; display: none; z-index: 4; }
-  @media (pointer: coarse) { #pad, #abtn, #mbtn { display: block; } body.talk #pad { opacity: .5; } #msg { bottom: 196px; } }
+  @media (pointer: coarse) { #pad, #abtn, #mbtn, #pbtn { display: block; } body.talk #pad { opacity: .5; } #msg { bottom: 196px; } }
   #wm { position: fixed; inset: 0; background: #1c2840f2; display: none; z-index: 7; align-items: center; justify-content: center; flex-direction: column; color: #fff; }
   #wm canvas { height: auto; image-rendering: pixelated; border: 4px solid #f8f8f8; outline: 3px solid #283058; }
   #wm p { font-size: 10px; margin: 10px; }
@@ -36,10 +37,14 @@
 <div id="banner"></div>
 <div id="msg"></div>
 <div id="hud"></div>
+<div id="battle"></div>
+<div id="party"></div>
 <div id="wm"><canvas id="wmc" width="1056" height="672"></canvas><p>M / tap to close</p></div>
 <div id="pad"><button class="u" data-d="up">▲</button><button class="d" data-d="down">▼</button><button class="l" data-d="left">◀</button><button class="r" data-d="right">▶</button></div>
-<button class="gb" id="abtn">A</button><button class="gb" id="mbtn">MAP</button>
-<script src="world.js?v=10"></script>
-<script src="game.js?v=10"></script>
+<button class="gb" id="abtn">A</button><button class="gb" id="mbtn">MAP</button><button class="gb" id="pbtn">PKMN</button>
+<script src="world.js?v=11"></script>
+<script src="pokedata.js?v=11"></script>
+<script src="game.js?v=11"></script>
+<script src="battle.js?v=11"></script>
 </body>
 </html>

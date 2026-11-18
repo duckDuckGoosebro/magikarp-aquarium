@@ -4,7 +4,16 @@ PLAY
   Double-click PLAY.bat (or open index.html). Online: https://duckduckgoosebro.github.io/magikarp-aquarium/poke-lab/
   PC:    arrows / WASD walk, Space or Z talks, M = world map, Esc closes boxes.
   Phone: on-screen pad walks, A talks, MAP opens the world map.
-  Your Porygon follows you. Progress (which towns you've visited) is saved in the browser.
+  Your lead Pokemon follows you. P (or PKMN button) = your party with stats and moves. Progress is saved in the browser.
+
+BATTLES (battle.js, data in pokedata.js)
+  Walk through tall grass on routes: wild Pokemon jump out (levels go up route by route).
+  FIGHT (real moves, types, STAB, critical hits, stat changes, sleep/poison/burn/paralysis/confusion),
+  BAG (Poke Balls to catch, Potions), PKMN (switch), RUN. Win = EXP, level ups, new moves and evolution.
+  Up to 6 in the party, extras go to the PC box. Pokemon Center doors heal everyone, Mart doors refill the bag.
+  If every Pokemon faints you wake up in Birchfield, healed.
+  Stats/moves/types/learnsets/evolutions come from Pokemon Essentials (pokemon-essentials/PBS), battle sprites are GBA FireRed.
+  Rebuild the data with:  python "POKE LAB/tools/build_pokedata.py"   (run after build_world.py)
 
 THE WORLD  (14 towns, 18 winding routes, every map joined to its neighbours)
   Press M for the world map. Start in BIRCHFIELD (science lab, Sunny the clown).
@@ -16,7 +25,8 @@ THE WORLD  (14 towns, 18 winding routes, every map joined to its neighbours)
   The only person is Sunny; the rest of the life is wandering Pokemon.
 
 FILES
-  index.html, game.js     the game (tile walking, map switching, follower, Sunny, signs, world map)
+  index.html, game.js     the game
+  battle.js, pokedata.js  party, stats screen and wild battles; pokedata.js is MADE BY tools/build_pokedata.py (tile walking, map switching, follower, Sunny, signs, world map)
   world.js                MADE BY tools/build_world.py - sizes, collision, connections, signs, people, wandering Pokemon
   assets/maps/            one picture per map (bottom layer + top layer for roofs/treetops)
   assets/overview.png     the world map picture

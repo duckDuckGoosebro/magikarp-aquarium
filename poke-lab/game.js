@@ -10,7 +10,7 @@ const SIDE = {up: 'n', down: 's', left: 'w', right: 'e'};
 const IMG = {};
 function img(src) {
   if (IMG[src]) return IMG[src];
-  const im = new Image(); im.src = src + '?v=10'; im.ready = false;
+  const im = new Image(); im.src = src + '?v=11'; im.ready = false;
   im.onload = () => { im.ready = true; }; IMG[src] = im; return im;
 }
 const whenReady = list => Promise.all(list.map(im => im.ready ? 1 : new Promise(r => { im.addEventListener('load', r); im.addEventListener('error', r); if (im.complete && im.naturalWidth) { im.ready = true; r(); } })));
@@ -85,7 +85,8 @@ async function enter(mid, x, y, dir) {
 }
 function hud() {
   const cities = WORLD.cities.filter(c => save.visited[c]).length;
-  $('hud').innerHTML = `${M.name}<br>Towns ${cities}/${WORLD.cities.length}`;
+  const lead = window.leadMon && leadMon();
+  $('hud').innerHTML = `${M.name}<br>Towns ${cities}/${WORLD.cities.length}` + (lead ? `<br>${DEX[lead.dex].name} Lv${lead.lvl} ${lead.hp}HP` : '');
 }
 let bannerT = 0;
 function banner(t) { const b = $('banner'); b.textContent = t; b.classList.add('show'); clearTimeout(bannerT); bannerT = setTimeout(() => b.classList.remove('show'), 2200); }
@@ -106,8 +107,8 @@ function interact() {
     return say("What's up austin-o!\n" + o.text);        // every person greets you first
   }
   const s = M.signs.find(s => s.x === x && s.y === y) || M.doors.find(d => d.x === x && d.y === y);
-  if (s) return say(s.text);
-  if (F.x === x && F.y === y) say(`${WORLD.names[F.dex]} is following you!`);
+  if (s) { const extra = window.onDoor ? onDoor(s.text) : ''; return say(s.text + (extra ? '\n' + extra : '')); }
+  if (F.x === x && F.y === y) say(`${(window.DEX && DEX[F.dex] ? DEX[F.dex].name : WORLD.names[F.dex])} is following you!`);
 }
 
 /* ---------- input ---------- */
@@ -115,6 +116,8 @@ const KEYS = {ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', ArrowL
 const press = d => { release(d); held.push(d); };
 const release = d => { const i = held.indexOf(d); if (i >= 0) held.splice(i, 1); };
 addEventListener('keydown', e => {
+  if (window.BATTLE_OPEN || window.PARTY_OPEN) return;                // the battle / party screens read the keys themselves
+  if (e.code === 'KeyP' && !e.repeat && !talking && window.openParty) { openParty(); return; }
   if (KEYS[e.code]) { e.preventDefault(); if (!talking) press(KEYS[e.code]); }
   else if (['Space', 'Enter', 'KeyZ'].includes(e.code)) { e.preventDefault(); if (!e.repeat) interact(); }
   else if (e.code === 'KeyM' && !e.repeat) toggleMap();
@@ -139,7 +142,7 @@ function toggleMap() {
   if (w.style.display === 'flex') { w.style.display = 'none'; return; }
   w.style.display = 'flex'; drawWorldMap(); held.length = 0;
 }
-const OVIMG = new Image(); OVIMG.src = 'assets/overview.png?v=10';
+const OVIMG = new Image(); OVIMG.src = 'assets/overview.png?v=11';
 function drawWorldMap() {
   const c = $('wmc'), g = c.getContext('2d'), O = WORLD.overview;
   c.width = O.w; c.height = O.h; g.imageSmoothingEnabled = false;
@@ -211,10 +214,10 @@ const pos = o => o.moving ? [o.x * T + DIRS[o.dir][0] * o.p, o.y * T + DIRS[o.di
 
 function update() {
   frame++;
-  if (busy || !M) return;
+  if (busy || !M || window.BATTLE_OPEN || window.PARTY_OPEN) return;
   if (P.moving) {
     P.p += SPD;
-    if (P.p >= T) { finishStep(P); F.x = F.tx; F.y = F.ty; }
+    if (P.p >= T) { finishStep(P); F.x = F.tx; F.y = F.ty; if (window.onStep) onStep(cur, P.x, P.y); }
   }
   if (!P.moving && !talking && $('wm').style.display !== 'flex' && held.length) {
     const px = P.x, py = P.y, d = held[held.length - 1];
@@ -260,6 +263,7 @@ function draw() {
   let fxp, fyp;
   if (P.moving) { const k = P.p / T; fxp = (F.sx + (F.tx - F.sx) * k) * T; fyp = (F.sy + (F.ty - F.sy) * k) * T; }
   else { fxp = F.x * T; fyp = F.y * T; }
+  if (window.leadMon && leadMon()) F.dex = leadMon().dex;
   list.push({y: fyp + 15, f: () => drawMon(F.dex, F.dir, P.moving ? (frame >> 3) : 0, fxp, fyp)});
   for (const o of view.mons) { const [x, y] = pos(o); list.push({y: y + 15, f: () => drawMon(o.dex, o.dir, o.moving ? (frame >> 3) : (frame >> 5), x, y)}); }
   for (const o of view.npcs) { const [x, y] = pos(o); list.push({y: y + 15, f: () => drawTrainer(o.sheet, o.dir, o.moving, o.parity, x, y)}); }
@@ -282,4 +286,4 @@ function loop(now) {
   await enter(s.map, s.x, s.y, 'down');
   requestAnimationFrame(loop);
 })();
-window.GAME = {P, F, RT, WORLD, enter, get M() { return M; }, get cur() { return cur; }, held, interact};
+window.GAME = {P, F, RT, WORLD, enter, hud, get save() { return save; }, get M() { return M; }, get cur() { return cur; }, held, interact};
